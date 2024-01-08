@@ -19,3 +19,13 @@
 # User-specific files ----
 README.html
 inst/doc
+
+# Specific folders
+admin/*
+biblio/*
+data/raw-data/*
+
+# Resuls
+outputs/*
+figures/*
+analyses/*.html

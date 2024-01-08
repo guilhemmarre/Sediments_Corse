@@ -1,0 +1,825 @@
+---
+title: "Caractérisation des sédiments meubles de Corse - 2022"
+output: 
+  html_document:
+    keep_md: false
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+rm(list=ls())
+library(NbClust)
+library(ClusterR)
+library(factoextra)
+library(ggplot2)
+library(plotly)
+library(leaflet)
+library(oceanis)
+library(soiltexture)
+library(sp)
+library(rgdal)
+library(leaflet.extras)
+library(htmlwidgets)
+
+# Load functions
+source("function_folk.R")
+source("function_shepard.R")
+
+# Radius size pour les cartes
+radius_size = 3
+
+# Lecture des données
+data <- read.table("2_DONNEES_CLEAN/Donnees_sediments_2022.csv",sep=";", dec=".", header = TRUE, stringsAsFactors = FALSE)
+rownames(data) <- data$Sample
+
+# On comble les profondeurs manquantes avec la bathy
+missing_depth <- which(is.na(data$Profondeur))
+data$Profondeur[missing_depth] <- -data$mean_bathy[missing_depth]
+data <- data[,-grep("bathy",colnames(data))]
+
+# On supprime pour l'instant les variables min_ et max_
+data <- data[,-grep("min_",colnames(data))]
+data <- data[,-grep("max_",colnames(data))]
+
+# On comble les pc_4000 vides pour ensuite prendre que les complete.cases
+data$pc_4000[which(is.na(data$pc_4000)&!is.na(data$pc_2500))] <- 100
+
+# On regroupe la granulométrie en clay, sand et gravel
+data$pc_clay <- data$pc_2
+data$pc_silt <- data$pc_4 + data$pc_63
+data$pc_sand <- data$pc_125 + data$pc_250 + data$pc_500 + data$pc_1000 + data$pc_2000
+data$pc_gravel <- data$pc_2500 + data$pc_4000
+
+######################
+### CLASSES DE SOL ###
+#####################
+
+# USDA
+classes_sol <- data.frame("CLAY" = data$pc_clay, "SILT" = data$pc_silt, "SAND" = data$pc_sand)
+classes_sol$TOTAL <- apply(classes_sol,1,sum, na.rm=TRUE)
+classes_sol$CLAY <- classes_sol$CLAY / classes_sol$TOTAL * 100
+classes_sol$SILT <- classes_sol$SILT / classes_sol$TOTAL * 100
+classes_sol$SAND <- classes_sol$SAND / classes_sol$TOTAL * 100
+rownames(classes_sol) <- data$Sample
+classes_sol <- classes_sol[complete.cases(classes_sol),]
+classes <- TT.points.in.classes(tri.data = classes_sol, class.sys = "USDA.TT")
+classes <- sapply(1:nrow(classes), function(i) colnames(classes)[which.max(classes[i,])])
+classes <- data.frame("Sample" = rownames(classes_sol), "classe_USDA" = classes)
+# 1 Cl clay
+# 2 SiCl silty clay
+# 3 SaCl sandy clay
+# 4 ClLo clay loam
+# 5 SiClLo silty clay loam
+# 6 SaClLo sandy clay loam
+# 7 Lo loam
+# 8 SiLo silty loam
+# 9 SaLo sandy loam
+# 10 Si silt
+# 11 LoSa loamy sand
+# 12 Sa sand
+classes$classe_USDA[classes$classe_USDA == "LoSa"] <- "Loamy sand"
+classes$classe_USDA[classes$classe_USDA == "Sa"] <- "Sand"
+classes$classe_USDA[classes$classe_USDA == "SaLo"] <- "Sandy loam"
+classes$classe_USDA[classes$classe_USDA == "SiLo"] <- "Silty loam"
+classes$classe_USDA[classes$classe_USDA == "Lo"] <- "Loam"
+
+data <- merge(data, classes, by = "Sample", all.x = TRUE, all.y = TRUE)
+
+
+# FOLK & SHEPARD
+classes_sol <- data.frame("CLAY" = data$pc_clay, "SILT" = data$pc_silt, "SAND" = data$pc_sand)
+classes_sol$TOTAL <- apply(classes_sol,1,sum, na.rm=TRUE)
+classes_sol$GRAVEL <- 100 - classes_sol$TOTAL
+rownames(classes_sol) <- data$Sample
+classes_sol <- classes_sol[complete.cases(classes_sol),]
+
+classes_sol$classe_Shepard_coarse <- sapply(1:nrow(classes_sol), function(i) get_shepard_class(gravel = classes_sol$GRAVEL[i],
+                                                                                        sand = classes_sol$SAND[i],
+                                                                                        silt = classes_sol$SILT[i],
+                                                                                        clay = classes_sol$CLAY[i])$coarse)
+
+classes_sol$classe_Shepard_fine <- sapply(1:nrow(classes_sol), function(i) get_shepard_class(gravel = classes_sol$GRAVEL[i],
+                                                                                        sand = classes_sol$SAND[i],
+                                                                                        silt = classes_sol$SILT[i],
+                                                                                        clay = classes_sol$CLAY[i])$fine)
+
+classes_sol$classe_Folk_coarse <- sapply(1:nrow(classes_sol), function(i) get_folk_class(gravel = classes_sol$GRAVEL[i],
+                                                                                        sand = classes_sol$SAND[i],
+                                                                                        silt = classes_sol$SILT[i],
+                                                                                        clay = classes_sol$CLAY[i])$coarse)
+
+classes_sol$classe_Folk_fine <- sapply(1:nrow(classes_sol), function(i) get_folk_class(gravel = classes_sol$GRAVEL[i],
+                                                                                        sand = classes_sol$SAND[i],
+                                                                                        silt = classes_sol$SILT[i],
+                                                                                        clay = classes_sol$CLAY[i])$fine)
+
+classes_sol <- data.frame("Sample" = rownames(classes_sol),
+                          "classe_Shepard_coarse" = classes_sol$classe_Shepard_coarse,
+                          "classe_Shepard_fine" = classes_sol$classe_Shepard_fine,
+                          "classe_Folk_coarse" = classes_sol$classe_Folk_coarse,
+                          "classe_Folk_fine" = classes_sol$classe_Folk_fine)
+
+data <- merge(data, classes_sol, by = "Sample", all.x = TRUE, all.y = TRUE)
+
+
+# Informations qualitatives sur les rhodolithes
+data$Recouvrement_Rhodolithes_video[data$Recouvrement_Rhodolithes_video == "<10%"] <- 5
+data$Recouvrement_Rhodolithes_video[data$Recouvrement_Rhodolithes_video == "10-50%"] <- 30
+data$Recouvrement_Rhodolithes_video[data$Recouvrement_Rhodolithes_video == "50-90%"] <- 70
+data$Recouvrement_Rhodolithes_video[data$Recouvrement_Rhodolithes_video == ">90%"] <- 95
+data$Recouvrement_Rhodolithes_video <- as.numeric(data$Recouvrement_Rhodolithes_video)
+
+# Vecteurs de colnames
+meta <- colnames(data)[1:8]
+pressions <- colnames(data)[grep("mean_",colnames(data))]
+grain_size <- colnames(data)[c(11:31,48,49,50)]
+
+# On ne garde que les valeurs complètes
+data <- data[complete.cases(data[,c(grain_size, "CaCO3","LOI_550")]),]
+
+
+# Chargement de la couche de biocenoses
+#biocenoses <- readOGR(dsn = "1_DONNEES_BRUTES/Biocenoses_Corse_DONIA_juin_2022_50m2_ok_s10.shp",
+#                      layer = "Biocenoses_Corse_DONIA_juin_2022_50m2_ok_s10")
+#biocenoses <- readOGR(dsn = "Z:/CartoNAS/ETUDES/MEDTRIX/PLATEFORME MEDTRIX/MEDTRIX_FTP/rep3/data/biocenoses/Biocenoses_Med_Atl_DONIA_juin_2022_50m2_ok_s10.shp",
+#                      layer = "Biocenoses_Med_Atl_DONIA_juin_2022_50m2_ok_s10")
+
+
+```
+
+# Objectifs
+
+## Caractérisation des sustrats meubles
+
+- Caractériser les substrats meubles de Corse (état initial)
+- Etudier les liens entre leur composition et :
+  - La profondeur
+  - La distance à la côte
+  - Les pressions anthropiques
+- Définir une méthode de suivi pour ces habitats
+- Améliorer l'interprétation du sonar
+
+## Comprendre la présence d'espèces associées
+
+- Cartographier la présence de rhodolithes  
+- Liens entre la présence de rhodolithes et la qualité du substrat ?  
+- Liens entre l'implantation de cymodocée / posido et la qualité du substrat ?  
+
+# Postulats / hypothèses
+
+Suite à discussion avec Antonio du laboratoire ayant analysé nos échantillons :  
+- Analyses toujours complexes car grosse variabilité spatiale et prélèvements très ponctuels  
+- CaCO3 essentiellement issu des squelettes calcaires, mais attention à la proximité à la côte avec des roches calcaires (aussi des squelettes, mais beaucoup plus anciens!)  
+- Sédiments grossiers => courantologie élevée, plus de CaCO3  
+- Sédiments fins => courantologie faible, plus de MO  
+=> normalement plus grossier plus proche de la côte, plus fin en s'éloignant.  
+- Sur un plateau, on peut observer grossier proche de la côte, fin plus profond, puis grossier à nouveau sur la bordure externe du plateau car ancien trait de côte.  
+- Globalement envasement et MO élevée = milieu altéré et plus anoxique (sauf si zone naturelle de dépôt de sédiments fins sans courants)  
+
+# Cartes descriptives
+
+Quelques cartes descriptives pour explorer les données  
+
+## Profondeur
+```{r, echo=FALSE}
+# Profondeur
+pal <- colorNumeric(
+  palette = "RdYlGn",
+  domain = data$Profondeur,
+  reverse = TRUE)
+
+# Avec les biocénoses
+map_depth <- leaflet(data = data, options = leafletOptions(zoomControl = TRUE,
+                                                           zoomSnap = 0, # force le niveau de zoom à ce niveau de détail (si 0.25 et zoom = 0.8, ça le mettra à 0.75). 0 = pas de snapping
+                                                           zoomDelta = 1, # contrôle le pas de zoom aux boutons +/-
+                                                           wheelPxPerZoomLevel = 60)) %>% # contrôle le zoom avec la souris
+  addTiles() %>% 
+  addFullscreenControl() %>%
+  setView( lng = 9, lat = 42.2, zoom = 8 ) %>% 
+  addProviderTiles("Esri.WorldImagery") %>% 
+  # addPolygons(data = biocenoses, color = "#444444", weight = 1, smoothFactor = 0.5,
+  #   opacity = 1.0, fillOpacity = 0.5,
+  #   #fillColor = ~colorQuantile("YlOrRd", ALAND)(ALAND),
+  #   highlightOptions = highlightOptions(color = "white", weight = 2,
+  #     bringToFront = TRUE)) %>%
+  addCircleMarkers(~Longitude, ~Latitude, popup = ~as.character(Sample), label = ~as.character(Profondeur), color = ~pal(Profondeur), radius =radius_size, fillOpacity = 1, stroke = FALSE) %>% 
+  addLegend('bottomright', pal = pal, values = data$Profondeur,
+            title = 'Profondeur (m)',
+            opacity = 1)
+map_depth
+
+saveWidget(map_depth, file="4_GRAPHIQUES/Depth.html", selfcontained = TRUE)
+
+
+```
+
+
+## Carbonates (% CaCO3)
+
+Carbonates exprimés en pourcentage de la matière sèche, obtenu par dosage d'acide chrolrhydrique.
+
+```{r, echo=FALSE}
+# CaCO3
+pal <- colorNumeric(
+  palette = "RdYlGn",
+  domain = data$CaCO3,
+  reverse = TRUE)
+
+map_CaCO3 <- leaflet(data = data, options = leafletOptions(zoomControl = TRUE,
+                                                           zoomSnap = 0, # force le niveau de zoom à ce niveau de détail (si 0.25 et zoom = 0.8, ça le mettra à 0.75). 0 = pas de snapping
+                                                           zoomDelta = 1, # contrôle le pas de zoom aux boutons +/-
+                                                           wheelPxPerZoomLevel = 60)) %>% # contrôle le zoom avec la souris
+  addTiles() %>% 
+  addFullscreenControl() %>%
+  setView( lng = 9, lat = 42.2, zoom = 8 ) %>% 
+  addProviderTiles("Esri.WorldImagery") %>% 
+  addCircleMarkers(~Longitude, ~Latitude, popup = ~paste0("<strong>Station : </strong>", Sample,
+                                  "<br><strong>Profondeur : </strong>", Profondeur, " m",
+                                  "<br><strong>CaCO3 : </strong>", round(CaCO3,1), " %"), label = ~as.character(round(CaCO3,1)), color = ~pal(CaCO3), radius =radius_size, fillOpacity = 1, stroke = FALSE) %>% 
+  addLegend('bottomright', pal = pal, values = data$CaCO3,
+            title = 'CaCO3 (%)',
+            opacity = 1)
+map_CaCO3
+
+saveWidget(map_CaCO3, file="4_GRAPHIQUES/CaCO3.html", selfcontained = TRUE)
+
+```
+
+
+## Matière organique (% LOI 550)
+
+Pourcentage de la matière sèche, obtenu par combustion à 550° pendant 4h. Echelle de valeurs log-transformée, mais valeurs popup brutes
+
+```{r, echo=FALSE}
+# LOI_550
+pal <- colorNumeric(
+  palette = "RdYlGn",
+  domain = log(data$LOI_550 + 1),
+  reverse = TRUE)
+
+map_LOI_550 <- leaflet(data = data, options = leafletOptions(zoomControl = TRUE,
+                                                           zoomSnap = 0, # force le niveau de zoom à ce niveau de détail (si 0.25 et zoom = 0.8, ça le mettra à 0.75). 0 = pas de snapping
+                                                           zoomDelta = 1, # contrôle le pas de zoom aux boutons +/-
+                                                           wheelPxPerZoomLevel = 60)) %>% # contrôle le zoom avec la souris
+  addTiles() %>% 
+  addFullscreenControl() %>%
+  setView( lng = 9, lat = 42.2, zoom = 8 ) %>% 
+  addProviderTiles("Esri.WorldImagery") %>% 
+  addCircleMarkers(~Longitude, ~Latitude, popup = ~paste0("<strong>Station : </strong>", Sample,
+                                  "<br><strong>Profondeur : </strong>", Profondeur, " m",
+                                  "<br><strong>LOI_550 : </strong>", round(LOI_550,1), " %"), label = ~as.character(round(LOI_550,1)), color = ~pal(log(LOI_550 + 1)), radius =radius_size, fillOpacity = 1, stroke = FALSE) %>% 
+  addLegend('bottomright', pal = pal, values = log(data$LOI_550 + 1),
+            title = 'log(LOI 550 (%) + 1)',
+            opacity = 1)
+map_LOI_550
+
+saveWidget(map_LOI_550, file="4_GRAPHIQUES/LOI_550.html", selfcontained = TRUE)
+
+```
+
+Quelques stations avec matière organique très élevée, mais possiblement présence de débris végétaux biaisant les analyses, à vérifier :  
+- T1S0565 27.74124  
+- T2S0347 24.08308  
+- T2S0350 26.79815  
+- T2S0763 44.93846  
+- T3S0764 31.30377  
+- T5S0324 29.59169  
+- T5S0327 30.13393  
+- T5S0651 29.31644  
+- T6S0590 33.24355  
+- T6S0591 61.67127  
+- T6S0695 36.16694  
+- T7S0558 21.60729  
+- T8S0601 49.62028  
+
+
+## Granulométrie
+
+Répartition des classes de taille des particules de sol :  
+- Argiles : < 2 um  
+- Limons : > 2 et < 63 um  
+- Sables : > 63 et < 2000 um  
+- Graviers : > 2000 um  
+
+Médiane = valeur médiane de la distribution des tailles de particules.  
+
+Les cartographies de la teneur des différentes fractions (argiles,...) sont transformées en log+1, mais les valeurs des popups sont les valeurs brutes
+
+```{r, echo=FALSE}
+# On modifie la valeur médiane pour réduire l'écrasement des données dues aux gravels
+data$Median[data$Median >= 2000] <- 2000
+
+# Median
+pal <- colorNumeric(
+  palette = "RdYlGn",
+  domain = log(data$Median),
+  reverse = TRUE)
+
+map_median <- leaflet(data = data, options = leafletOptions(zoomControl = TRUE,
+                                                           zoomSnap = 0, # force le niveau de zoom à ce niveau de détail (si 0.25 et zoom = 0.8, ça le mettra à 0.75). 0 = pas de snapping
+                                                           zoomDelta = 1, # contrôle le pas de zoom aux boutons +/-
+                                                           wheelPxPerZoomLevel = 60)) %>% # contrôle le zoom avec la souris
+  addTiles() %>% 
+  addFullscreenControl() %>%
+  setView( lng = 9, lat = 42.2, zoom = 8 ) %>% 
+  addProviderTiles("Esri.WorldImagery") %>% 
+  addCircleMarkers(~Longitude, ~Latitude, popup = ~paste0("<strong>Station : </strong>", Sample,
+                                  "<br><strong>Profondeur : </strong>", Profondeur, " m",
+                                  "<br><strong>Median : </strong>", round(Median,1), " um"), label = ~as.character(round(log(Median),1)), color = ~pal(log(Median)), radius =radius_size, fillOpacity = 1, stroke = FALSE) %>% 
+  addLegend('bottomright', pal = pal, values = log(data$Median),
+            title = 'log(Median) (um)',
+            opacity = 1)
+map_median
+
+saveWidget(map_median, file="4_GRAPHIQUES/Median.html", selfcontained = TRUE)
+
+
+# Clay
+pal <- colorNumeric(
+  palette = "RdYlGn",
+  domain = log(data$pc_clay+1),
+  reverse = TRUE)
+
+map_clay <- leaflet(data = data, options = leafletOptions(zoomControl = TRUE,
+                                                           zoomSnap = 0, # force le niveau de zoom à ce niveau de détail (si 0.25 et zoom = 0.8, ça le mettra à 0.75). 0 = pas de snapping
+                                                           zoomDelta = 1, # contrôle le pas de zoom aux boutons +/-
+                                                           wheelPxPerZoomLevel = 60)) %>% # contrôle le zoom avec la souris
+  addTiles() %>% 
+  addFullscreenControl() %>%
+  setView( lng = 9, lat = 42.2, zoom = 8 ) %>% 
+  addProviderTiles("Esri.WorldImagery") %>% 
+  addCircleMarkers(~Longitude, ~Latitude, popup = ~paste0("<strong>Station : </strong>", Sample,
+                                  "<br><strong>Profondeur : </strong>", Profondeur, " m",
+                                  "<br><strong>Clay : </strong>", round(pc_clay,1), " %"), label = ~as.character(round(pc_clay,1)), color = ~pal(log(pc_clay+1)), radius =radius_size, fillOpacity = 1, stroke = FALSE) %>% 
+  addLegend('bottomright', pal = pal, values = log(data$pc_clay+1),
+            title = 'log(Argiles (%) + 1)',
+            opacity = 1)
+map_clay
+
+saveWidget(map_clay, file="4_GRAPHIQUES/Clay.html", selfcontained = TRUE)
+
+
+# Silt
+pal <- colorNumeric(
+  palette = "RdYlGn",
+  domain = log(data$pc_silt+1),
+  reverse = TRUE)
+
+map_silt <- leaflet(data = data, options = leafletOptions(zoomControl = TRUE,
+                                                           zoomSnap = 0, # force le niveau de zoom à ce niveau de détail (si 0.25 et zoom = 0.8, ça le mettra à 0.75). 0 = pas de snapping
+                                                           zoomDelta = 1, # contrôle le pas de zoom aux boutons +/-
+                                                           wheelPxPerZoomLevel = 60)) %>% # contrôle le zoom avec la souris
+  addTiles() %>% 
+  addFullscreenControl() %>%
+  setView( lng = 9, lat = 42.2, zoom = 8 ) %>% 
+  addProviderTiles("Esri.WorldImagery") %>% 
+  addCircleMarkers(~Longitude, ~Latitude, popup = ~paste0("<strong>Station : </strong>", Sample,
+                                  "<br><strong>Profondeur : </strong>", Profondeur, " m",
+                                  "<br><strong>Silt : </strong>", round(pc_silt,1), " %"), label = ~as.character(round(pc_silt,1)), color = ~pal(log(pc_silt+1)), radius =radius_size, fillOpacity = 1, stroke = FALSE) %>% 
+  addLegend('bottomright', pal = pal, values = log(data$pc_silt+1),
+            title = 'log(Limons (%) + 1)',
+            opacity = 1)
+map_silt
+
+saveWidget(map_silt, file="4_GRAPHIQUES/Silt.html", selfcontained = TRUE)
+
+
+
+# Sand
+pal <- colorNumeric(
+  palette = "RdYlGn",
+  domain = data$pc_sand,
+  reverse = TRUE)
+
+map_sand <- leaflet(data = data, options = leafletOptions(zoomControl = TRUE,
+                                                           zoomSnap = 0, # force le niveau de zoom à ce niveau de détail (si 0.25 et zoom = 0.8, ça le mettra à 0.75). 0 = pas de snapping
+                                                           zoomDelta = 1, # contrôle le pas de zoom aux boutons +/-
+                                                           wheelPxPerZoomLevel = 60)) %>% # contrôle le zoom avec la souris
+  addTiles() %>% 
+  addFullscreenControl() %>%
+  setView( lng = 9, lat = 42.2, zoom = 8 ) %>% 
+  addProviderTiles("Esri.WorldImagery") %>% 
+  addCircleMarkers(~Longitude, ~Latitude, popup = ~paste0("<strong>Station : </strong>", Sample,
+                                  "<br><strong>Profondeur : </strong>", Profondeur, " m",
+                                  "<br><strong>Sand : </strong>", round(pc_sand,1), " %"), label = ~as.character(round(pc_sand,1)), color = ~pal(pc_sand), radius =radius_size, fillOpacity = 1, stroke = FALSE) %>% 
+  addLegend('bottomright', pal = pal, values = data$pc_sand,
+            title = 'Sables (%)',
+            opacity = 1)
+map_sand
+
+saveWidget(map_sand, file="4_GRAPHIQUES/Sand.html", selfcontained = TRUE)
+
+
+# Gravel
+pal <- colorNumeric(
+  palette = "RdYlGn",
+  domain = log(data$pc_gravel+1),
+  reverse = TRUE)
+
+map_gravel <- leaflet(data = data, options = leafletOptions(zoomControl = TRUE,
+                                                           zoomSnap = 0, # force le niveau de zoom à ce niveau de détail (si 0.25 et zoom = 0.8, ça le mettra à 0.75). 0 = pas de snapping
+                                                           zoomDelta = 1, # contrôle le pas de zoom aux boutons +/-
+                                                           wheelPxPerZoomLevel = 60)) %>% # contrôle le zoom avec la souris
+  addTiles() %>% 
+  addFullscreenControl() %>%
+  setView( lng = 9, lat = 42.2, zoom = 8 ) %>% 
+  addProviderTiles("Esri.WorldImagery") %>% 
+  addCircleMarkers(~Longitude, ~Latitude, popup = ~paste0("<strong>Station : </strong>", Sample,
+                                  "<br><strong>Profondeur : </strong>", Profondeur, " m",
+                                  "<br><strong>Gravel : </strong>", round(pc_gravel,1), " %"), label = ~as.character(round(pc_gravel,1)), color = ~pal(log(pc_gravel+1)), radius =radius_size, fillOpacity = 1, stroke = FALSE) %>% 
+  addLegend('bottomright', pal = pal, values = log(data$pc_gravel+1),
+            title = 'log(Graviers (%) + 1)',
+            opacity = 1)
+map_gravel
+
+saveWidget(map_gravel, file="4_GRAPHIQUES/Gravel.html", selfcontained = TRUE)
+
+
+```
+
+
+**Conclusion** : on semble être sur quelque chose d'assez homogène sur toute la Corse, pas de grosse tendance contrairement à ce qu'on pourrait attendre / penser
+
+
+## Rhodolithes
+
+Cartographie du recouvrement par les rhodolithes (visuel d'après les vidéos)
+
+```{r, echo=FALSE}
+# Rhodolithes
+#pal <- colorFactor(rev(c("red", "orange","yellow","green", "darkgreen")), domain = c(0,5,30,70,95))
+pal <- colorFactor(rev(c("green", "red")), domain = c("Presence","Absence"))
+data$RHO_presence <- NA
+data$RHO_presence[data$Recouvrement_Rhodolithes_video>0] <- "Presence"
+data$RHO_presence[data$Recouvrement_Rhodolithes_video==0] <- "Absence"
+
+map_RHO <- leaflet(data = data, options = leafletOptions(zoomControl = TRUE,
+                                                           zoomSnap = 0, # force le niveau de zoom à ce niveau de détail (si 0.25 et zoom = 0.8, ça le mettra à 0.75). 0 = pas de snapping
+                                                           zoomDelta = 1, # contrôle le pas de zoom aux boutons +/-
+                                                           wheelPxPerZoomLevel = 60)) %>% # contrôle le zoom avec la souris
+  addTiles() %>% 
+  addFullscreenControl() %>%
+  setView( lng = 9, lat = 42.2, zoom = 8 ) %>% 
+  addProviderTiles("Esri.WorldImagery") %>% 
+  addCircleMarkers(~Longitude, ~Latitude, popup = ~paste0("<strong>Station : </strong>", Sample,
+                                  "<br><strong>Profondeur : </strong>", Profondeur, " m",
+                                  "<br><strong>Rhodololithes : </strong>", Recouvrement_Rhodolithes_video, " %"), label = ~as.character(Recouvrement_Rhodolithes_video), color = ~pal(RHO_presence), radius =radius_size, fillOpacity = 1, stroke = FALSE) %>% 
+  addLegend('bottomright', pal = pal, values = data$RHO_presence,
+            title = 'Rhodolithes vidéo (%)',
+            opacity = 1)
+map_RHO
+
+saveWidget(map_RHO, file="4_GRAPHIQUES/RHO.html", selfcontained = TRUE)
+
+
+
+```
+
+# Classification des échantillons
+
+## USDA
+
+Classes de sol d'après la nomenclature USDA.  
+
+[<img src="USDA_classification.jpg">](USDA_classification.jpg)
+
+```{r, echo=FALSE}
+# Classe substrat
+pal <- colorFactor(c("brown", "bisque2", "burlywood1","darkorchid1","darkolivegreen3"), domain = c("Loam", "Loamy sand", "Sand", "Sandy loam", "Silty loam"))
+
+map_classe <- leaflet(data = data, options = leafletOptions(zoomControl = TRUE,
+                                                           zoomSnap = 0, # force le niveau de zoom à ce niveau de détail (si 0.25 et zoom = 0.8, ça le mettra à 0.75). 0 = pas de snapping
+                                                           zoomDelta = 1, # contrôle le pas de zoom aux boutons +/-
+                                                           wheelPxPerZoomLevel = 60)) %>% # contrôle le zoom avec la souris
+  addTiles() %>% 
+  addFullscreenControl() %>%
+  setView( lng = 9, lat = 42.2, zoom = 8 ) %>% 
+  addProviderTiles("Esri.WorldImagery") %>% 
+  addCircleMarkers(~Longitude, ~Latitude, popup = ~paste0("<strong>Station : </strong>", Sample,
+                                  "<br><strong>Profondeur : </strong>", Profondeur, " m",
+                                  "<br><strong>Sand : </strong>", round(pc_sand,1), " %",
+                                  "<br><strong>Silt : </strong>", round(pc_silt,1), " %",
+                                  "<br><strong>Clay : </strong>", round(pc_clay,1), " %"), label = ~as.character(classe_USDA), color = ~pal(classe_USDA), radius =radius_size, fillOpacity = 1, stroke = FALSE) %>% 
+  addLegend('bottomright', pal = pal, values = data$classe_USDA,
+            title = 'Classe de substrat USDA',
+            opacity = 1)
+map_classe
+
+saveWidget(map_classe, file="4_GRAPHIQUES/Classe_USDA.html", selfcontained = TRUE)
+```
+
+
+
+## Shepard
+
+[<img src="shepard_classification.jpg">](shepard_classification.jpg)
+
+Classes de sol d'après la nomenclature Shepard (description sédiments **grossiers**).
+
+
+```{r, echo=FALSE}
+# Classe substrat
+pal <- colorFactor(c("orange", "yellow", "white"), domain = c("GRAVEL", "GRAVELLY SEDIMENT", "SAND SILT CLAY"))
+
+map_classe <- leaflet(data = data, options = leafletOptions(zoomControl = TRUE,
+                                                           zoomSnap = 0, # force le niveau de zoom à ce niveau de détail (si 0.25 et zoom = 0.8, ça le mettra à 0.75). 0 = pas de snapping
+                                                           zoomDelta = 1, # contrôle le pas de zoom aux boutons +/-
+                                                           wheelPxPerZoomLevel = 60)) %>% # contrôle le zoom avec la souris
+  addTiles() %>% 
+  addFullscreenControl() %>%
+  setView( lng = 9, lat = 42.2, zoom = 8 ) %>% 
+  addProviderTiles("Esri.WorldImagery") %>% 
+  addCircleMarkers(~Longitude, ~Latitude, popup = ~paste0("<strong>Station : </strong>", Sample,
+                                  "<br><strong>Profondeur : </strong>", Profondeur, " m",
+                                  "<br><strong>Gravel : </strong>", round(100 - pc_sand - pc_silt - pc_clay, 1), " %",
+                                  "<br><strong>Sand : </strong>", round(pc_sand, 1), " %",
+                                  "<br><strong>Silt and clay : </strong>", round(pc_silt + pc_clay, 1), " %"), label = ~as.character(classe_Shepard_coarse), color = ~pal(classe_Shepard_coarse), radius =radius_size, fillOpacity = 1, stroke = FALSE) %>% 
+  addLegend('bottomright', pal = pal, values = data$classe_Shepard_coarse,
+            title = 'Classe de substrat Shepard coarse',
+            opacity = 1)
+map_classe
+
+saveWidget(map_classe, file="4_GRAPHIQUES/Classe_Shepard_coarse.html", selfcontained = TRUE)
+```
+
+
+Classes de sol d'après la nomenclature Shepard (description sédiments **fins**)
+
+```{r, echo=FALSE}
+# Classe substrat
+pal <- colorFactor(c("yellow", "lightblue", "blue", "lightgreen"), domain = c("SAND", "SANDY SILT", "SILT", "SILTY SAND"))
+
+map_classe <- leaflet(data = data, options = leafletOptions(zoomControl = TRUE,
+                                                           zoomSnap = 0, # force le niveau de zoom à ce niveau de détail (si 0.25 et zoom = 0.8, ça le mettra à 0.75). 0 = pas de snapping
+                                                           zoomDelta = 1, # contrôle le pas de zoom aux boutons +/-
+                                                           wheelPxPerZoomLevel = 60)) %>% # contrôle le zoom avec la souris
+  addTiles() %>% 
+  addFullscreenControl() %>%
+  setView( lng = 9, lat = 42.2, zoom = 8 ) %>% 
+  addProviderTiles("Esri.WorldImagery") %>% 
+  addCircleMarkers(~Longitude, ~Latitude, popup = ~paste0("<strong>Station : </strong>", Sample,
+                                  "<br><strong>Profondeur : </strong>", Profondeur, " m",
+                                  "<br><strong>Sand : </strong>", round(pc_sand,1), " %",
+                                  "<br><strong>Silt : </strong>", round(pc_silt,1), " %",
+                                  "<br><strong>Clay : </strong>", round(pc_clay,1), " %"), label = ~as.character(classe_Shepard_fine), color = ~pal(classe_Shepard_fine), radius =radius_size, fillOpacity = 1, stroke = FALSE) %>% 
+  addLegend('bottomright', pal = pal, values = data$classe_Shepard_fine,
+            title = 'Classe de substrat Shepard fine',
+            opacity = 1)
+map_classe
+
+saveWidget(map_classe, file="4_GRAPHIQUES/Classe_Shepard_fine.html", selfcontained = TRUE)
+```
+
+
+## Folk
+
+[<img src="folk_classification.jpg">](folk_classification.jpg)
+
+
+Classes de sol d'après la nomenclature Folk (description sédiments **grossiers**).
+
+
+```{r, echo=FALSE}
+# Classe substrat
+pal <- colorFactor(c("yellow", "yellow","orange","yellow","yellow","white","yellow","white","yellow","white"), 
+                   domain = c("(g)mS", "(g)S",  "G","gmS", "gS","mS", "msG","S","sG", "sM"))
+
+map_classe <- leaflet(data = data, options = leafletOptions(zoomControl = TRUE,
+                                                           zoomSnap = 0, # force le niveau de zoom à ce niveau de détail (si 0.25 et zoom = 0.8, ça le mettra à 0.75). 0 = pas de snapping
+                                                           zoomDelta = 1, # contrôle le pas de zoom aux boutons +/-
+                                                           wheelPxPerZoomLevel = 60)) %>% # contrôle le zoom avec la souris
+  addTiles() %>% 
+  addFullscreenControl() %>%
+  setView( lng = 9, lat = 42.2, zoom = 8 ) %>% 
+  addProviderTiles("Esri.WorldImagery") %>% 
+  addCircleMarkers(~Longitude, ~Latitude, popup = ~paste0("<strong>Station : </strong>", Sample,
+                                  "<br><strong>Profondeur : </strong>", Profondeur, " m",
+                                  "<br><strong>Gravel : </strong>", round(100 - pc_sand - pc_silt - pc_clay, 1), " %",
+                                  "<br><strong>Sand : </strong>", round(pc_sand, 1), " %",
+                                  "<br><strong>Silt and clay : </strong>", round(pc_silt + pc_clay, 1), " %"), label = ~as.character(classe_Folk_coarse), color = ~pal(classe_Folk_coarse), radius =radius_size, fillOpacity = 1, stroke = FALSE) %>% 
+  addLegend('bottomright', pal = pal, values = data$classe_Folk_coarse,
+            title = 'Classe de substrat Folk coarse',
+            opacity = 1)
+map_classe
+
+saveWidget(map_classe, file="4_GRAPHIQUES/Classe_Folk_coarse.html", selfcontained = TRUE)
+```
+
+
+Classes de sol d'après la nomenclature Folk (description sédiments **fins**)
+
+```{r, echo=FALSE}
+# Classe substrat
+pal <- colorFactor(c("lightgreen", "yellow", "lightblue", "lightgreen"), domain = c("mS", "S",  "sZ", "zS"))
+
+map_classe <- leaflet(data = data, options = leafletOptions(zoomControl = TRUE,
+                                                           zoomSnap = 0, # force le niveau de zoom à ce niveau de détail (si 0.25 et zoom = 0.8, ça le mettra à 0.75). 0 = pas de snapping
+                                                           zoomDelta = 1, # contrôle le pas de zoom aux boutons +/-
+                                                           wheelPxPerZoomLevel = 60)) %>% # contrôle le zoom avec la souris
+  addTiles() %>% 
+  addFullscreenControl() %>%
+  setView( lng = 9, lat = 42.2, zoom = 8 ) %>% 
+  addProviderTiles("Esri.WorldImagery") %>% 
+  addCircleMarkers(~Longitude, ~Latitude, popup = ~paste0("<strong>Station : </strong>", Sample,
+                                  "<br><strong>Profondeur : </strong>", Profondeur, " m",
+                                  "<br><strong>Sand : </strong>", round(pc_sand,1), " %",
+                                  "<br><strong>Silt : </strong>", round(pc_silt,1), " %",
+                                  "<br><strong>Clay : </strong>", round(pc_clay,1), " %"), label = ~as.character(classe_Folk_fine), color = ~pal(classe_Folk_fine), radius =radius_size, fillOpacity = 1, stroke = FALSE) %>% 
+  addLegend('bottomright', pal = pal, values = data$classe_Folk_fine,
+            title = 'Classe de substrat Folk fine',
+            opacity = 1)
+map_classe
+
+saveWidget(map_classe, file="4_GRAPHIQUES/Classe_Folk_fine.html", selfcontained = TRUE)
+```
+
+# ACP
+
+## Granulométrie
+
+ACP sur les données de granulométrie seules car nombreuses variables
+
+```{r, echo=FALSE}
+# ACP grain size
+data_PCA <- data[,grain_size]
+PCA <- princomp(data_PCA, cor=TRUE)
+#barplot(100 * PCA$sdev^2 / sum(PCA$sdev^2))
+#cumsum(100 * (PCA$sdev^2) / sum(PCA$sdev^2))
+
+# Plot PCA
+gg <- fviz_pca_var(PCA, col.var = "contrib") +
+  scale_color_gradient2(low="white", mid="blue", 
+                        high="red", midpoint=1.5) + theme_minimal()
+ggplotly(gg)
+
+# Corrélations dans le jeu de données
+#cor(data_PCA$Skewness, data_PCA$Kurtosis, use = "pairwise.complete.obs") # 0.85
+#cor(data_PCA$Skewness, data_PCA$d50, use = "pairwise.complete.obs") # -0.10
+#cor(data_PCA$Mode, data_PCA$d50, use = "pairwise.complete.obs") # 0.71
+#cor(data_PCA$Mode, data_PCA$Median, use = "pairwise.complete.obs") # 0.71
+#cor(data_PCA$d50, data_PCA$pc_2, use = "pairwise.complete.obs") # -0.25
+# cor(data_PCA$Median, data_PCA$Mean, use = "pairwise.complete.obs") # 0.95
+
+jpeg(filename = "4_GRAPHIQUES/ACP_grain_size.jpg",width = 20, height = 12,res = 300, units = "cm")
+gg
+dev.off()
+```
+
+D'après Antonio, on peut se contenter de regarder la valeur médiane de la distribution, qui est un bon indicateur  (et très corrélé à la moyenne : 0.95).  
+
+On gardera par la suite la médiane, et les 4 compartiments : argiles, limons, sables et graviers
+
+
+## Données laboratoire
+```{r, echo=FALSE}
+# ACP laboratoire
+data_PCA <- data[,c("CaCO3","LOI_550","Median","pc_clay","pc_silt", "pc_sand","pc_gravel")]
+PCA <- princomp(data_PCA, cor=TRUE)
+
+# Plot PCA
+gg <- fviz_pca_var(PCA, col.var = "contrib") +
+  scale_color_gradient2(low="white", mid="blue", 
+                        high="red", midpoint=1.5) + theme_minimal()
+ggplotly(gg)
+
+jpeg(filename = "4_GRAPHIQUES/ACP_laboratoire.jpg",width = 20, height = 12,res = 300, units = "cm")
+gg
+dev.off()
+```
+
+## Données laboratoire et localisation
+```{r, echo=FALSE}
+# ACP laboratoire
+data_PCA <- data[,c("CaCO3","LOI_550","Median","pc_clay","pc_silt", "pc_sand","pc_gravel","dist_land","Profondeur")]
+PCA <- princomp(data_PCA, cor=TRUE)
+
+# Plot PCA
+gg <- fviz_pca_var(PCA, col.var = "contrib") +
+  scale_color_gradient2(low="white", mid="blue", 
+                        high="red", midpoint=1.5) + theme_minimal()
+ggplotly(gg)
+
+jpeg(filename = "4_GRAPHIQUES/ACP_laboratoire_localisation.jpg",width = 20, height = 12,res = 300, units = "cm")
+gg
+dev.off()
+```
+
+
+## Données laboratoire et pressions
+```{r, echo=FALSE}
+# ACP laboratoire
+data_PCA <- data[,c("CaCO3","LOI_550","Median","pc_clay","pc_silt", "pc_sand","pc_gravel", colnames(data)[grep("mean_",colnames(data))])]
+PCA <- princomp(data_PCA, cor=TRUE)
+
+# Plot PCA
+gg <- fviz_pca_var(PCA, col.var = "contrib") +
+  scale_color_gradient2(low="white", mid="blue", 
+                        high="red", midpoint=1.5) + theme_minimal()
+ggplotly(gg)
+
+jpeg(filename = "4_GRAPHIQUES/ACP_laboratoire_pressions.jpg",width = 20, height = 12,res = 300, units = "cm")
+gg
+dev.off()
+```
+
+
+# Clustering des stations
+
+K-means sur le tableau de données avec le meilleur nombre de clusters entre 4 et 10
+
+
+```{r, include=FALSE}
+nb_clust <- NbClust(data = data[,c("CaCO3","LOI_550","Median")], diss = NULL, distance = "euclidean",min.nc = 4, max.nc = 10, method = "kmeans")
+data$Group <- nb_clust$Best.partition
+```
+
+```{r, echo=FALSE}
+# Cartographie des groupes
+# Create a palette that maps factor levels to colors
+n_clust <- as.numeric(names(which.max(table(nb_clust$Best.nc[1,]))))
+pal <- colorFactor(c("blue", "red", "orange","yellow","green","darkgreen")[1:n_clust], domain = c(1,2,3,4,5,6)[1:n_clust])
+
+m <- leaflet(data = data, options = leafletOptions(zoomControl = TRUE,
+                                                           zoomSnap = 0, # force le niveau de zoom à ce niveau de détail (si 0.25 et zoom = 0.8, ça le mettra à 0.75). 0 = pas de snapping
+                                                           zoomDelta = 1, # contrôle le pas de zoom aux boutons +/-
+                                                           wheelPxPerZoomLevel = 60)) %>% # contrôle le zoom avec la souris
+  addTiles() %>% 
+  addFullscreenControl() %>%
+  setView( lng = 9, lat = 42.2, zoom = 8 ) %>% 
+  addProviderTiles("Esri.WorldImagery") %>% 
+  addCircleMarkers(~Longitude, ~Latitude, popup = ~paste0("<strong>Station : </strong>", Sample,
+                                  "<br><strong>Profondeur : </strong>", Profondeur, " m",
+                                  "<br><strong>Cluster : </strong>", Group), label = ~as.character(Group), color = ~pal(Group), radius =radius_size, fillOpacity = 1, stroke = FALSE) %>% 
+  addLegend('bottomright', pal = pal, values = data$Group,
+            title = 'Clusters',
+            opacity = 1)
+m
+
+saveWidget(m, file="4_GRAPHIQUES/Clusters.html", selfcontained = TRUE)
+
+
+
+# Graphique des individus sur le 1er plan de l'ACP
+data_PCA <- data[,c("CaCO3","LOI_550","Median")]
+PCA <- princomp(data_PCA, cor=TRUE)
+gg <- fviz_pca_biplot(PCA, col.ind = factor(data$Group)) + scale_color_hue()#+
+  #scale_color_gradient2(low="white", mid="blue", 
+  #                      high="red", midpoint=1.5, name="FD") + theme_minimal()
+ggplotly(gg)
+  
+```
+
+
+# Graphiques en vrac
+
+```{r, echo=FALSE}
+plot(LOI_550~pc_clay, data, pch=16, cex=0.5)
+
+# Distance to land
+plot(Median~dist_land, data, pch=16, cex=0.5)
+plot(LOI_550~dist_land, data, pch=16, cex=0.5)
+plot(CaCO3~dist_land, data, pch=16, cex=0.5)
+
+# Profondeur
+plot(Median~Profondeur, data, pch=16, cex=0.5)
+plot(LOI_550~Profondeur, data, pch=16, cex=0.5)
+plot(CaCO3~Profondeur, data, pch=16, cex=0.5)
+```
+
+
+```{r, include=FALSE}
+# export_jpeg(map = map_depth, chemin = "4_GRAPHIQUES", nomFichier = "Carte_Profondeur.jpg") 
+# export_jpeg(map = map_CaCO3, chemin = "4_GRAPHIQUES", nomFichier = "Carte_CaCO3.jpg")
+# export_jpeg(map = map_LOI_550, chemin = "4_GRAPHIQUES", nomFichier = "Carte_LOI_550.jpg")
+# export_jpeg(map = map_median, chemin = "4_GRAPHIQUES", nomFichier = "Carte_median.jpg")
+# export_jpeg(map = map_clay, chemin = "4_GRAPHIQUES", nomFichier = "Carte_clay.jpg")
+# export_jpeg(map = map_silt, chemin = "4_GRAPHIQUES", nomFichier = "Carte_silt.jpg")
+# export_jpeg(map = map_sand, chemin = "4_GRAPHIQUES", nomFichier = "Carte_sand.jpg")
+# export_jpeg(map = map_gravel, chemin = "4_GRAPHIQUES", nomFichier = "Carte_gravel.jpg")
+# export_jpeg(map = map_classe, chemin = "4_GRAPHIQUES", nomFichier = "Carte_classe.jpg")
+# export_jpeg(map = map_RHO, chemin = "4_GRAPHIQUES", nomFichier = "Carte_rhodolithes.jpg")
+
+write.table(data, "3_RESULTATS/Donnees_classes_sediments_2022.csv", sep = ";", dec = ".", row.names = FALSE)
+
+```
+
+
+# Analyses à faire
+- Extraire l'habitat Donia expert et voir si la caractérisation au sonar correspond à la typologie de substrat
+- Liens granulo avec couranto => normalement fin / vaseux où peu de courant, grossier sinon
+- Interpoler chaque variable à partir de la cartographie des substrats meubles Donia (kriging)
+
+# Idées d'études complémentaires
+- Utiliser le multifaisceaux pour caractériser aussi la réflectance, un peu comme le sonar ?
+- Réaliser des carottes de 20-30cm pour avoir l'historique et faire des analyses complémentaires isotopiques pour dater
+
+# Contacts utiles
+
+Enrique Ballesteros => beaucoup travaillé en milieu côtier et indicateurs
+David Tanblas (?) => cartographie avec multifaisceaux
+
+
+

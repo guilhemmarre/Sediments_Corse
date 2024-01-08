@@ -19,6 +19,14 @@ devtools::install_deps(upgrade = "never")
 
 devtools::load_all(here::here())
 
+library(XLConnect)
+
+source("R/degmindec2degdec.R")
+
+source("R/function_folk.R")
+
+source("R/function_shepard.R")
+
 
 ## Global Variables ----
 
@@ -27,5 +35,7 @@ devtools::load_all(here::here())
 
 ## Run Project ----
 
-# List all R scripts in a sequential order and using the following form:
-# source(here::here("analyses", "script_X.R"))
+source("analyses/1_Nettoyage_donnees.R")
+
+rmarkdown::render("analyses/2_Analyses.Rmd", output_file = "2_Analyses.html")
+

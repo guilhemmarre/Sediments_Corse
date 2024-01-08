@@ -1,9 +1,10 @@
-rm(list=ls())
+
+
 library(XLConnect)
 
 
 # Métadonnées stations
-metadata <- readWorksheetFromFile("1_DONNEES_BRUTES/Bennes_SURFSTAT Corse 2022.xlsx",sheet = "Feuil2")
+metadata <- readWorksheetFromFile(file = "data/raw-data/Bennes_SURFSTAT Corse 2022.xlsx", sheet = "Feuil2")
 metadata <- metadata[1:(min(which(is.na(metadata$Numero_Echantillon)))-1),]
 metadata$Heure_Fichier <- NULL
 metadata$Heure_Video <- NULL
@@ -12,63 +13,36 @@ metadata$Pas_fait <- NULL
 metadata$Video_a_verifier <- NULL
 
 metadata$RHO <- toupper(metadata$RHO)
-metadata$Recouvrement_Rhodolithes_video[metadata$Recouvrement_Rhodolithes_video=="-10"] <- "<10%"
-metadata$Recouvrement_Rhodolithes_video[metadata$Recouvrement_Rhodolithes_video=="N/A"] <- NA
-metadata$Recouvrement_Rhodolithes_video[metadata$Recouvrement_Rhodolithes_video=="+90"] <- ">90%"
-metadata$Recouvrement_Rhodolithes_video[metadata$Recouvrement_Rhodolithes_video=="NSP"] <- NA
-metadata$Recouvrement_Rhodolithes_video[metadata$Recouvrement_Rhodolithes_video=="10-50"] <- "10-50%"
-metadata$Recouvrement_Rhodolithes_video[metadata$Recouvrement_Rhodolithes_video=="50-90"] <- "50-90%"
+metadata$Recouvrement_Rhodolithes_video[metadata$Recouvrement_Rhodolithes_video == "-10"] <- "<10%"
+metadata$Recouvrement_Rhodolithes_video[metadata$Recouvrement_Rhodolithes_video == "N/A"] <- NA
+metadata$Recouvrement_Rhodolithes_video[metadata$Recouvrement_Rhodolithes_video == "+90"] <- ">90%"
+metadata$Recouvrement_Rhodolithes_video[metadata$Recouvrement_Rhodolithes_video == "NSP"] <- NA
+metadata$Recouvrement_Rhodolithes_video[metadata$Recouvrement_Rhodolithes_video == "10-50"] <- "10-50%"
+metadata$Recouvrement_Rhodolithes_video[metadata$Recouvrement_Rhodolithes_video == "50-90"] <- "50-90%"
 
 # Suppression des échantillons sans coordonnées
 metadata <- metadata[metadata$X_Bateau != "N/A",]
 
 # Création ID unique simplifié et suppression des observations inutiles
-metadata$Numero_Echantillon <- gsub(" ","",metadata$Numero_Echantillon)
-metadata$Numero_Echantillon <- gsub("Taverna","",metadata$Numero_Echantillon)
-metadata <- metadata[-grep("Observation",metadata$Numero_Echantillon),]
-metadata$Sample <- sapply(metadata$Numero_Echantillon, function(x) paste0("T",strsplit(x,"T")[[1]][2]))
+metadata$Numero_Echantillon <- gsub(" ", "", metadata$Numero_Echantillon)
+metadata$Numero_Echantillon <- gsub("Taverna", "", metadata$Numero_Echantillon)
+metadata <- metadata[-grep("Observation", metadata$Numero_Echantillon),]
+metadata$Sample <- sapply(metadata$Numero_Echantillon, function(x) paste0("T", strsplit(x, "T")[[1]][2]))
 
 
-# COrrection des coordonnées
+# Correction des coordonnées
 for (j in 1:ncol(metadata)){
   
-  metadata[,j] <- gsub(",",".",metadata[,j])
-  metadata[,j] <- gsub("'","",metadata[,j])
+  metadata[,j] <- gsub(",", ".", metadata[,j])
+  metadata[,j] <- gsub("'", "", metadata[,j])
   
 }#eo for j
 
 metadata$Profondeur <- as.numeric(metadata$Profondeur)
 
-# Transformation des coordonn?es GPS pour tout mettre en degr?s d?cimaux
-latitudes <- c()
-longitudes <- c()
-
-for (i in 1:nrow(metadata)){
-
-  if (length(grep(" ", metadata$X_Bateau[i]))==1){
-    
-    degre.lat <- as.numeric(strsplit(metadata$Y_Bateau[i], " ")[[1]][1])
-    dec.lat <- as.numeric(strsplit(metadata$Y_Bateau[i], " ")[[1]][2]) / 60
-    latitudes[i] <- degre.lat + dec.lat
-    
-    degre.long <- as.numeric(strsplit(metadata$X_Bateau[i], " ")[[1]][1])
-    dec.long <- as.numeric(strsplit(metadata$X_Bateau[i], " ")[[1]][2]) / 60
-    longitudes[i] <- degre.long + dec.long
-    
-  }else{
-    
-    latitudes[i] <- as.numeric(metadata$Y_Bateau[i])
-    longitudes[i] <- as.numeric(metadata$X_Bateau[i])
-    
-  }#eo if grep
-  
-}#eo for i
-
-metadata[["Latitude"]] <- latitudes
-metadata[["Longitude"]] <- longitudes
-
-
-
+# Transformation des coordonnées GPS pour tout mettre en degrés décimaux
+metadata[["Latitude"]] <- toDegDec(metadata$Y_Bateau)
+metadata[["Longitude"]] <- toDegDec(metadata$X_Bateau)
 
 
 ##################
@@ -76,7 +50,7 @@ metadata[["Longitude"]] <- longitudes
 ##################
 
 # List files
-calcimetry_files <- list.files(path = "1_DONNEES_BRUTES/Laboratoire", pattern = glob2rx("*calcimetry*.xlsx"), recursive = TRUE, full.names = TRUE)
+calcimetry_files <- list.files(path = "data/raw-data/Laboratoire", pattern = glob2rx("*calcimetry*.xlsx"), recursive = TRUE, full.names = TRUE)
 
 # Concatenate data
 calcimetry_data <- NA
@@ -99,29 +73,28 @@ for (file in calcimetry_files){
                                 autofitCol = FALSE)
   
   
-  col <- grep("Sample",data)[1]
-  row <- grep("Sample",data[,col])[1]
+  col <- grep("Sample", data)[1]
+  row <- grep("Sample", data[, col])[1]
   
   data <- readWorksheetFromFile(file = file, 
                                      sheet = sheet_name,
                                      header = FALSE,
-                                     startRow = row+1,
-                                     #endRow = fin_prei_info,
-                                     startCol = col-1,
-                                     endCol = col+2,
+                                     startRow = row + 1,
+                                     startCol = col - 1,
+                                     endCol = col + 2,
                                      autofitRow = TRUE, 
                                      autofitCol = FALSE)
   
-  calcimetry_data <- rbind(calcimetry_data,data)
+  calcimetry_data <- rbind(calcimetry_data, data)
   
 }#eo for file
 
-calcimetry_data <- calcimetry_data[-1,-c(1,3)]
-colnames(calcimetry_data) <- c("Sample","CaCO3")
-calcimetry_data$Sample <- gsub(" ","",calcimetry_data$Sample)
+calcimetry_data <- calcimetry_data[-1, -c(1,3)]
+colnames(calcimetry_data) <- c("Sample", "CaCO3")
+calcimetry_data$Sample <- gsub(" ", "", calcimetry_data$Sample)
 
 # Averaging over duplicates
-calcimetry_data <- aggregate(CaCO3~Sample, calcimetry_data, mean, na.rm=TRUE)
+calcimetry_data <- aggregate(CaCO3 ~ Sample, calcimetry_data, mean, na.rm = TRUE)
 
 
 
@@ -130,7 +103,7 @@ calcimetry_data <- aggregate(CaCO3~Sample, calcimetry_data, mean, na.rm=TRUE)
 ######################
 
 # List files
-organic_matter_files <- list.files(path = "1_DONNEES_BRUTES/Laboratoire", pattern = glob2rx("*organic_matter*.xlsx"), recursive = TRUE, full.names = TRUE)
+organic_matter_files <- list.files(path = "data/raw-data/Laboratoire", pattern = glob2rx("*organic_matter*.xlsx"), recursive = TRUE, full.names = TRUE)
 
 # Concatenate data
 organic_matter_data <- NA
@@ -153,29 +126,28 @@ for (file in organic_matter_files){
                                 autofitCol = FALSE)
   
   
-  col <- grep("Sample",data)[1]
-  row <- grep("Sample",data[,col])[1]
+  col <- grep("Sample", data)[1]
+  row <- grep("Sample", data[, col])[1]
   
   data <- readWorksheetFromFile(file = file, 
                                 sheet = sheet_name,
                                 header = FALSE,
                                 startRow = row+1,
-                                #endRow = fin_prei_info,
                                 startCol = col-1,
                                 endCol = col+7,
                                 autofitRow = TRUE, 
                                 autofitCol = FALSE)
   
-  organic_matter_data <- rbind(organic_matter_data,data)
+  organic_matter_data <- rbind(organic_matter_data, data)
   
 }#eo for file
 
-organic_matter_data <- organic_matter_data[-1,c(2,ncol(organic_matter_data))]
+organic_matter_data <- organic_matter_data[-1, c(2,ncol(organic_matter_data))]
 colnames(organic_matter_data) <- c("Sample","LOI_550")
-organic_matter_data$Sample <- gsub(" ","",organic_matter_data$Sample)
+organic_matter_data$Sample <- gsub(" ", "", organic_matter_data$Sample)
 
 # Averaging over duplicates
-organic_matter_data <- aggregate(LOI_550~Sample, organic_matter_data, mean, na.rm=TRUE)
+organic_matter_data <- aggregate(LOI_550 ~ Sample, organic_matter_data, mean, na.rm = TRUE)
 
 
 
@@ -296,11 +268,12 @@ organic_matter_data <- aggregate(LOI_550~Sample, organic_matter_data, mean, na.r
 ################################
 
 # List files
-grain_size_files <- list.files(path = "1_DONNEES_BRUTES/Laboratoire", pattern = glob2rx("*.xls"), recursive = TRUE, full.names = TRUE)
+grain_size_files <- list.files(path = "data/raw-data/Laboratoire", pattern = glob2rx("*.xls"), recursive = TRUE, full.names = TRUE)
 
 # Concatenate data
 grain_size_data <- NA
 #error = "T6S0038"
+
 for (file in grain_size_files){
   
   # Get sheet name
@@ -318,39 +291,39 @@ for (file in grain_size_files){
                                  autofitRow = TRUE, 
                                  autofitCol = TRUE)
   
-  sheet[,2] <- gsub(",",".",sheet[,2])
+  sheet[,2] <- gsub(",", ".", sheet[,2])
   
   
   sample <- strsplit(file,"/")[[1]]
-  sample <- gsub(".xls","",sample[length(sample)])
-  sample <- gsub("Taverna","",sample)
-  sample <- paste0("T",strsplit(sample,"[T]")[[1]][2])
+  sample <- gsub(".xls", "", sample[length(sample)])
+  sample <- gsub("Taverna", "", sample)
+  sample <- paste0("T", strsplit(sample, "[T]")[[1]][2])
   
   # Statistics
-  mean <- as.numeric(sheet[grep("Mean",sheet[,1])[1],2])
-  median <- as.numeric(sheet[grep("Median",sheet[,1])[1],2])
-  mode <- as.numeric(sheet[grep("Mode",sheet[,1])[1],2])
-  SD <- as.numeric(sheet[grep("S.D",sheet[,1])[1],2])
-  variance <- as.numeric(sheet[grep("Variance",sheet[,1])[1],2])
-  CV <- as.numeric(sheet[grep("C.V",sheet[,1])[1],2])
-  skewness <- as.numeric(sheet[grep("Skewness",sheet[,1])[1],2])
-  kurtosis <- as.numeric(sheet[grep("Kurtosis",sheet[,1])[1],2])
-  d10 <- as.numeric(sheet[grep("d10",sheet[,1])[1],2])
-  d50 <- as.numeric(sheet[grep("d50",sheet[,1])[1],2])
-  d90 <- as.numeric(sheet[grep("d90",sheet[,1])[1],2])
+  mean <- as.numeric(sheet[grep("Mean", sheet[,1])[1],2])
+  median <- as.numeric(sheet[grep("Median", sheet[,1])[1],2])
+  mode <- as.numeric(sheet[grep("Mode", sheet[,1])[1],2])
+  SD <- as.numeric(sheet[grep("S.D", sheet[,1])[1],2])
+  variance <- as.numeric(sheet[grep("Variance", sheet[,1])[1],2])
+  CV <- as.numeric(sheet[grep("C.V", sheet[,1])[1],2])
+  skewness <- as.numeric(sheet[grep("Skewness", sheet[,1])[1],2])
+  kurtosis <- as.numeric(sheet[grep("Kurtosis", sheet[,1])[1],2])
+  d10 <- as.numeric(sheet[grep("d10", sheet[,1])[1],2])
+  d50 <- as.numeric(sheet[grep("d50", sheet[,1])[1],2])
+  d90 <- as.numeric(sheet[grep("d90", sheet[,1])[1],2])
   
   
   # Particle diameters
-  pc_2 <- as.numeric(sheet[grep("Particle Diameter",sheet[,1])[1]+3,2])
-  pc_4 <- as.numeric(sheet[grep("Particle Diameter",sheet[,1])[1]+4,2])
-  pc_63 <- as.numeric(sheet[grep("Particle Diameter",sheet[,1])[1]+5,2])
-  pc_125 <- as.numeric(sheet[grep("Particle Diameter",sheet[,1])[1]+6,2])
-  pc_250 <- as.numeric(sheet[grep("Particle Diameter",sheet[,1])[1]+7,2])
-  pc_500 <- as.numeric(sheet[grep("Particle Diameter",sheet[,1])[1]+8,2])
-  pc_1000 <- as.numeric(sheet[grep("Particle Diameter",sheet[,1])[1]+9,2])
-  pc_2000 <- as.numeric(sheet[grep("Particle Diameter",sheet[,1])[1]+10,2])
-  pc_2500 <- as.numeric(sheet[grep("Particle Diameter",sheet[,1])[1]+11,2])
-  pc_4000 <- as.numeric(sheet[grep("Particle Diameter",sheet[,1])[1]+12,2])
+  pc_2 <- as.numeric(sheet[grep("Particle Diameter", sheet[,1])[1] + 3, 2])
+  pc_4 <- as.numeric(sheet[grep("Particle Diameter", sheet[,1])[1] + 4, 2])
+  pc_63 <- as.numeric(sheet[grep("Particle Diameter", sheet[,1])[1] + 5, 2])
+  pc_125 <- as.numeric(sheet[grep("Particle Diameter", sheet[,1])[1] + 6, 2])
+  pc_250 <- as.numeric(sheet[grep("Particle Diameter", sheet[,1])[1] + 7, 2])
+  pc_500 <- as.numeric(sheet[grep("Particle Diameter", sheet[,1])[1] + 8, 2])
+  pc_1000 <- as.numeric(sheet[grep("Particle Diameter", sheet[,1])[1] + 9, 2])
+  pc_2000 <- as.numeric(sheet[grep("Particle Diameter", sheet[,1])[1] + 10, 2])
+  pc_2500 <- as.numeric(sheet[grep("Particle Diameter", sheet[,1])[1] + 11, 2])
+  pc_4000 <- as.numeric(sheet[grep("Particle Diameter", sheet[,1])[1] + 12, 2])
   
   # Transform into each category's percentage
   pc_4000 <- pc_4000 - pc_2500
@@ -401,7 +374,7 @@ for (file in grain_size_files){
   
 }#eo for file
 
-grain_size_data <- grain_size_data[-1,]
+grain_size_data <- grain_size_data[-1, ]
 
 
 
@@ -427,18 +400,18 @@ missing_grain_size <- metadata$Sample[which(!is.element(metadata$Sample, grain_s
 missing_all <- intersect(missing_grain_size, missing_organic)
 missing_all <- intersect(missing_all, missing_calcimetry)
 
-write.table(missing_organic, "2_DONNEES_CLEAN/Missing_samples_organic.csv",sep=";",dec=".", row.names = FALSE, col.names = FALSE)
-write.table(missing_calcimetry, "2_DONNEES_CLEAN/Missing_samples_calcimetry.csv",sep=";",dec=".", row.names = FALSE, col.names = FALSE)
-write.table(missing_grain_size, "2_DONNEES_CLEAN/Missing_samples_grain_size.csv",sep=";",dec=".", row.names = FALSE, col.names = FALSE)
-write.table(missing_all, "2_DONNEES_CLEAN/Missing_samples_all.csv",sep=";",dec=".", row.names = FALSE, col.names = FALSE)
+write.table(missing_organic, "data/Missing_samples_organic.csv", sep = ";", dec = ".", row.names = FALSE, col.names = FALSE)
+write.table(missing_calcimetry, "data/Missing_samples_calcimetry.csv", sep = ";", dec = ".", row.names = FALSE, col.names = FALSE)
+write.table(missing_grain_size, "data/Missing_samples_grain_size.csv", sep = ";", dec = ".", row.names = FALSE, col.names = FALSE)
+write.table(missing_all, "data/Missing_samples_all.csv", sep = ";", dec = ".", row.names = FALSE, col.names = FALSE)
 
 
 #####################
 ### PRESSURE DATA ###
 #####################
 
-pressions <- read.table("1_DONNEES_BRUTES/Pressions/bennes_metadata.csv",sep=";",dec=",", header = TRUE, stringsAsFactors = FALSE)
-pressions <- pressions[,-c(2:8)]
+pressions <- read.table("data/raw-data/Pressions/bennes_metadata.csv", sep = ";", dec = ",", header = TRUE, stringsAsFactors = FALSE)
+pressions <- pressions[, -c(2:8)]
 pressions <- pressions[-which(pressions$Sample %in% missing_all),]
 
 
@@ -454,13 +427,13 @@ pressions <- pressions[-which(pressions$Sample %in% missing_all),]
 ### Concatenate all data ###
 ############################
 
-metadata <- metadata[,c("Sample","Zone","Profondeur","Date","Longitude","Latitude","RHO","Recouvrement_Rhodolithes_video")]
-all_data <- merge(metadata, calcimetry_data, by="Sample", all.x=TRUE, all.y=TRUE)
-all_data <- merge(all_data, organic_matter_data, by="Sample", all.x=TRUE, all.y=TRUE)
-all_data <- merge(all_data, grain_size_data, by="Sample", all.x=TRUE, all.y=TRUE)
+metadata <- metadata[, c("Sample", "Zone", "Profondeur", "Date", "Longitude", "Latitude", "RHO", "Recouvrement_Rhodolithes_video")]
+all_data <- merge(metadata, calcimetry_data, by = "Sample", all.x = TRUE, all.y = TRUE)
+all_data <- merge(all_data, organic_matter_data, by = "Sample", all.x = TRUE, all.y = TRUE)
+all_data <- merge(all_data, grain_size_data, by = "Sample", all.x = TRUE, all.y = TRUE)
 
 
-all_data <- merge(all_data, pressions, by="Sample")
+all_data <- merge(all_data, pressions, by = "Sample")
 
-write.table(all_data, "2_DONNEES_CLEAN/Donnees_sediments_2022.csv",sep=";",dec=".", row.names = FALSE)
+write.table(all_data, "data/derived-data/Donnees_sediments_2022.csv", sep = ";", dec = ".", row.names = FALSE)
 

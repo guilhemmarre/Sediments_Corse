@@ -1,0 +1,12 @@
+<PAMDataset>
+  <PAMRasterBand band="1">
+    <Description>bathy_andro_gebco_medfr_3395</Description>
+    <Metadata>
+      <MDI key="STATISTICS_MAXIMUM">2407.6538085938</MDI>
+      <MDI key="STATISTICS_MEAN">-237.23175322288</MDI>
+      <MDI key="STATISTICS_MINIMUM">-2638.1140136719</MDI>
+      <MDI key="STATISTICS_STDDEV">980.1978931725</MDI>
+      <MDI key="STATISTICS_VALID_PERCENT">69.58</MDI>
+    </Metadata>
+  </PAMRasterBand>
+</PAMDataset>

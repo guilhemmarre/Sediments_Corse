@@ -1,0 +1,1539 @@
+---
+title: "Caractérisation des sédiments meubles de Corse - 2022"
+output: 
+  html_document:
+    keep_md: false
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+rm(list = ls())
+library(NbClust)
+library(ClusterR)
+library(factoextra)
+library(ggplot2)
+library(plotly)
+library(leaflet)
+library(oceanis)
+library(soiltexture)
+library(leaflet.extras)
+library(htmlwidgets)
+
+# Radius size pour les cartes
+radius_size = 3
+
+# Lecture des données
+load("../outputs/01_data.RData")
+
+# Vecteurs de colnames
+meta <- c("Sample", "Zone", "Profondeur", "Date", "Longitude", "Latitude", "RHO", "Recouvrement_Rhodolithes_video")
+pressions <- colnames(data)[grep("mean_", colnames(data))]
+grain_size <- c("Mean", "Median", "Mode", "SD", "Variance", "CV", "Skewness", "Kurtosis", "d10", "d50", "d90", 
+                colnames(data)[grep("pc_", colnames(data))])
+
+# On ne garde que les valeurs complètes
+data <- data[complete.cases(data[, c(grain_size, "CaCO3", "LOI_550")]), ]
+
+# On supprime les habitats qui ne comportent que trop peu de données
+data <- data[data$Habitat %in% names(which(table(data$Habitat) > 5)), ]
+
+```
+
+# Objectifs
+
+## Caractérisation des sustrats meubles
+
+- **Caractériser** les substrats meubles de Corse (état initial)
+- **Etudier les liens** entre leur **composition** et :
+  - La **profondeur**
+  - La **distance à la côte**
+  - Les **pressions anthropiques**
+- Définir une méthode de suivi pour ces habitats
+- Améliorer l'interprétation du sonar
+
+## Comprendre la présence d'espèces associées
+
+- **Cartographier** la présence de **rhodolithes**
+- Liens entre la **présence de rhodolithes** et la **qualité du substrat** ?  
+- Liens entre **l'implantation de cymodocée / posido** et la **qualité du substrat** ?  
+
+# Postulats / hypothèses
+
+Suite à discussion avec Antonio du laboratoire ayant analysé nos échantillons :  
+- Analyses toujours complexes car grosse variabilité spatiale et prélèvements très ponctuels  
+- CaCO3 essentiellement issu des squelettes calcaires, mais attention à la proximité à la côte avec des roches calcaires (aussi des squelettes, mais beaucoup plus anciens!)  
+- Sédiments grossiers  = > courantologie élevée, plus de CaCO3  
+- Sédiments fins  = > courantologie faible, plus de MO  
+ = > normalement plus grossier plus proche de la côte, plus fin en s'éloignant.  
+- Sur un plateau, on peut observer grossier proche de la côte, fin plus profond, puis grossier à nouveau sur la bordure externe du plateau car ancien trait de côte.  
+- Globalement envasement et MO élevée = milieu altéré et plus anoxique (sauf si zone naturelle de dépôt de sédiments fins sans courants)  
+
+---
+
+# Cartes descriptives
+
+Quelques cartes descriptives pour explorer les données  
+
+## Profondeur
+```{r, echo = FALSE}
+# Profondeur
+pal <- colorNumeric(
+  palette = "RdYlGn", 
+  domain = data$Profondeur, 
+  reverse = TRUE)
+
+# Avec les biocénoses
+map_depth <- leaflet(data = data, options = leafletOptions(zoomControl = TRUE, 
+                                                           zoomSnap = 0, # force le niveau de zoom à ce niveau de détail (si 0.25 et zoom = 0.8, ça le mettra à 0.75). 0 = pas de snapping
+                                                           zoomDelta = 1, # contrôle le pas de zoom aux boutons +/-
+                                                           wheelPxPerZoomLevel = 60)) %>% # contrôle le zoom avec la souris
+  addTiles() %>% 
+  addFullscreenControl() %>%
+  setView( lng = 9, lat = 42.2, zoom = 8 ) %>% 
+  addProviderTiles("Esri.WorldImagery") %>% 
+  # addPolygons(data = biocenoses, color = "#444444", weight = 1, smoothFactor = 0.5, 
+  #   opacity = 1.0, fillOpacity = 0.5, 
+  #   #fillColor = ~ colorQuantile("YlOrRd", ALAND)(ALAND), 
+  #   highlightOptions = highlightOptions(color = "white", weight = 2, 
+  #     bringToFront = TRUE)) %>%
+  addCircleMarkers( ~ Longitude, ~ Latitude, popup = ~ as.character(Sample), label = ~ as.character(Profondeur), color = ~ pal(Profondeur), radius  = radius_size, fillOpacity = 1, stroke = FALSE) %>% 
+  addLegend('bottomright', pal = pal, values = data$Profondeur, 
+            title = 'Profondeur (m)', 
+            opacity = 1)
+map_depth
+
+saveWidget(map_depth, file = "../figures/Depth.html", selfcontained = TRUE)
+
+
+```
+
+
+
+---
+
+## Carbonates (% CaCO3)
+
+Carbonates exprimés en pourcentage de la matière sèche, obtenu par dosage d'acide chrolrhydrique.
+
+```{r, echo = FALSE}
+# CaCO3
+pal <- colorNumeric(
+  palette = "RdYlGn", 
+  domain = data$CaCO3, 
+  reverse = TRUE)
+
+map_CaCO3 <- leaflet(data = data, options = leafletOptions(zoomControl = TRUE, 
+                                                           zoomSnap = 0, # force le niveau de zoom à ce niveau de détail (si 0.25 et zoom = 0.8, ça le mettra à 0.75). 0 = pas de snapping
+                                                           zoomDelta = 1, # contrôle le pas de zoom aux boutons +/-
+                                                           wheelPxPerZoomLevel = 60)) %>% # contrôle le zoom avec la souris
+  addTiles() %>% 
+  addFullscreenControl() %>%
+  setView( lng = 9, lat = 42.2, zoom = 8 ) %>% 
+  addProviderTiles("Esri.WorldImagery") %>% 
+  addCircleMarkers( ~ Longitude, ~ Latitude, popup = ~ paste0("<strong>Station : </strong>", Sample, 
+                                  "<br><strong>Profondeur : </strong>", Profondeur, " m", 
+                                  "<br><strong>CaCO3 : </strong>", round(CaCO3, 1), " %"), label = ~ as.character(round(CaCO3, 1)), color = ~ pal(CaCO3), radius  = radius_size, fillOpacity = 1, stroke = FALSE) %>% 
+  addLegend('bottomright', pal = pal, values = data$CaCO3, 
+            title = 'CaCO3 (%)', 
+            opacity = 1)
+map_CaCO3
+
+saveWidget(map_CaCO3, file = "../figures/CaCO3.html", selfcontained = TRUE)
+
+```
+
+
+
+---
+
+## Matière organique (% LOI 550)
+
+Pourcentage de la matière sèche, obtenu par combustion à 550° pendant 4h. Echelle de valeurs log-transformée, mais valeurs popup brutes
+
+```{r, echo = FALSE}
+# LOI_550
+pal <- colorNumeric(
+  palette = "RdYlGn", 
+  domain = log(data$LOI_550 + 1), 
+  reverse = TRUE)
+
+map_LOI_550 <- leaflet(data = data, options = leafletOptions(zoomControl = TRUE, 
+                                                           zoomSnap = 0, # force le niveau de zoom à ce niveau de détail (si 0.25 et zoom = 0.8, ça le mettra à 0.75). 0 = pas de snapping
+                                                           zoomDelta = 1, # contrôle le pas de zoom aux boutons +/-
+                                                           wheelPxPerZoomLevel = 60)) %>% # contrôle le zoom avec la souris
+  addTiles() %>% 
+  addFullscreenControl() %>%
+  setView( lng = 9, lat = 42.2, zoom = 8 ) %>% 
+  addProviderTiles("Esri.WorldImagery") %>% 
+  addCircleMarkers( ~ Longitude, ~ Latitude, popup = ~ paste0("<strong>Station : </strong>", Sample, 
+                                  "<br><strong>Profondeur : </strong>", Profondeur, " m", 
+                                  "<br><strong>LOI_550 : </strong>", round(LOI_550, 1), " %"), label = ~ as.character(round(LOI_550, 1)), color = ~ pal(log(LOI_550 + 1)), radius  = radius_size, fillOpacity = 1, stroke = FALSE) %>% 
+  addLegend('bottomright', pal = pal, values = log(data$LOI_550 + 1), 
+            title = 'log(LOI 550 (%) + 1)', 
+            opacity = 1)
+map_LOI_550
+
+saveWidget(map_LOI_550, file = "../figures/LOI_550.html", selfcontained = TRUE)
+
+```
+
+Quelques stations avec matière organique très élevée, mais possiblement présence de débris végétaux biaisant les analyses, à vérifier :  
+- T1S0565 27.74124  
+- T2S0347 24.08308  
+- T2S0350 26.79815  
+- T2S0763 44.93846  
+- T3S0764 31.30377  
+- T5S0324 29.59169  
+- T5S0327 30.13393  
+- T5S0651 29.31644  
+- T6S0590 33.24355  
+- T6S0591 61.67127  
+- T6S0695 36.16694  
+- T7S0558 21.60729  
+- T8S0601 49.62028  
+
+
+
+---
+
+## Granulométrie
+
+Répartition des classes de taille des particules de sol :  
+- Argiles : < 2 um  
+- Limons : > 2 et < 63 um  
+- Sables : > 63 et < 2000 um  
+- Graviers : > 2000 um  
+
+Médiane = valeur médiane de la distribution des tailles de particules.  
+
+Les cartographies de la teneur des différentes fractions (argiles, ...) sont transformées en log+1, mais les valeurs des popups sont les valeurs brutes
+
+```{r, echo = FALSE}
+# On modifie la valeur médiane pour réduire l'écrasement des données dues aux gravels
+data$Median[data$Median >=  2000] <- 2000
+
+# Median
+pal <- colorNumeric(
+  palette = "RdYlGn", 
+  domain = log(data$Median), 
+  reverse = TRUE)
+
+map_median <- leaflet(data = data, options = leafletOptions(zoomControl = TRUE, 
+                                                           zoomSnap = 0, # force le niveau de zoom à ce niveau de détail (si 0.25 et zoom = 0.8, ça le mettra à 0.75). 0 = pas de snapping
+                                                           zoomDelta = 1, # contrôle le pas de zoom aux boutons +/-
+                                                           wheelPxPerZoomLevel = 60)) %>% # contrôle le zoom avec la souris
+  addTiles() %>% 
+  addFullscreenControl() %>%
+  setView( lng = 9, lat = 42.2, zoom = 8 ) %>% 
+  addProviderTiles("Esri.WorldImagery") %>% 
+  addCircleMarkers( ~ Longitude, ~ Latitude, popup = ~ paste0("<strong>Station : </strong>", Sample, 
+                                  "<br><strong>Profondeur : </strong>", Profondeur, " m", 
+                                  "<br><strong>Median : </strong>", round(Median, 1), " um"), label = ~ as.character(round(log(Median), 1)), color = ~ pal(log(Median)), radius  = radius_size, fillOpacity = 1, stroke = FALSE) %>% 
+  addLegend('bottomright', pal = pal, values = log(data$Median), 
+            title = 'log(Median) (um)', 
+            opacity = 1)
+map_median
+
+saveWidget(map_median, file = "../figures/Median.html", selfcontained = TRUE)
+
+
+# Clay
+pal <- colorNumeric(
+  palette = "RdYlGn", 
+  domain = log(data$pc_clay+1), 
+  reverse = TRUE)
+
+map_clay <- leaflet(data = data, options = leafletOptions(zoomControl = TRUE, 
+                                                           zoomSnap = 0, # force le niveau de zoom à ce niveau de détail (si 0.25 et zoom = 0.8, ça le mettra à 0.75). 0 = pas de snapping
+                                                           zoomDelta = 1, # contrôle le pas de zoom aux boutons +/-
+                                                           wheelPxPerZoomLevel = 60)) %>% # contrôle le zoom avec la souris
+  addTiles() %>% 
+  addFullscreenControl() %>%
+  setView( lng = 9, lat = 42.2, zoom = 8 ) %>% 
+  addProviderTiles("Esri.WorldImagery") %>% 
+  addCircleMarkers( ~ Longitude, ~ Latitude, popup = ~ paste0("<strong>Station : </strong>", Sample, 
+                                  "<br><strong>Profondeur : </strong>", Profondeur, " m", 
+                                  "<br><strong>Clay : </strong>", round(pc_clay, 1), " %"), label = ~ as.character(round(pc_clay, 1)), color = ~ pal(log(pc_clay+1)), radius  = radius_size, fillOpacity = 1, stroke = FALSE) %>% 
+  addLegend('bottomright', pal = pal, values = log(data$pc_clay+1), 
+            title = 'log(Argiles (%) + 1)', 
+            opacity = 1)
+map_clay
+
+saveWidget(map_clay, file = "../figures/Clay.html", selfcontained = TRUE)
+
+
+# Silt
+pal <- colorNumeric(
+  palette = "RdYlGn", 
+  domain = log(data$pc_silt+1), 
+  reverse = TRUE)
+
+map_silt <- leaflet(data = data, options = leafletOptions(zoomControl = TRUE, 
+                                                           zoomSnap = 0, # force le niveau de zoom à ce niveau de détail (si 0.25 et zoom = 0.8, ça le mettra à 0.75). 0 = pas de snapping
+                                                           zoomDelta = 1, # contrôle le pas de zoom aux boutons +/-
+                                                           wheelPxPerZoomLevel = 60)) %>% # contrôle le zoom avec la souris
+  addTiles() %>% 
+  addFullscreenControl() %>%
+  setView( lng = 9, lat = 42.2, zoom = 8 ) %>% 
+  addProviderTiles("Esri.WorldImagery") %>% 
+  addCircleMarkers( ~ Longitude, ~ Latitude, popup = ~ paste0("<strong>Station : </strong>", Sample, 
+                                  "<br><strong>Profondeur : </strong>", Profondeur, " m", 
+                                  "<br><strong>Silt : </strong>", round(pc_silt, 1), " %"), label = ~ as.character(round(pc_silt, 1)), color = ~ pal(log(pc_silt+1)), radius  = radius_size, fillOpacity = 1, stroke = FALSE) %>% 
+  addLegend('bottomright', pal = pal, values = log(data$pc_silt+1), 
+            title = 'log(Limons (%) + 1)', 
+            opacity = 1)
+map_silt
+
+saveWidget(map_silt, file = "../figures/Silt.html", selfcontained = TRUE)
+
+
+
+# Sand
+pal <- colorNumeric(
+  palette = "RdYlGn", 
+  domain = data$pc_sand, 
+  reverse = TRUE)
+
+map_sand <- leaflet(data = data, options = leafletOptions(zoomControl = TRUE, 
+                                                           zoomSnap = 0, # force le niveau de zoom à ce niveau de détail (si 0.25 et zoom = 0.8, ça le mettra à 0.75). 0 = pas de snapping
+                                                           zoomDelta = 1, # contrôle le pas de zoom aux boutons +/-
+                                                           wheelPxPerZoomLevel = 60)) %>% # contrôle le zoom avec la souris
+  addTiles() %>% 
+  addFullscreenControl() %>%
+  setView( lng = 9, lat = 42.2, zoom = 8 ) %>% 
+  addProviderTiles("Esri.WorldImagery") %>% 
+  addCircleMarkers( ~ Longitude, ~ Latitude, popup = ~ paste0("<strong>Station : </strong>", Sample, 
+                                  "<br><strong>Profondeur : </strong>", Profondeur, " m", 
+                                  "<br><strong>Sand : </strong>", round(pc_sand, 1), " %"), label = ~ as.character(round(pc_sand, 1)), color = ~ pal(pc_sand), radius  = radius_size, fillOpacity = 1, stroke = FALSE) %>% 
+  addLegend('bottomright', pal = pal, values = data$pc_sand, 
+            title = 'Sables (%)', 
+            opacity = 1)
+map_sand
+
+saveWidget(map_sand, file = "../figures/Sand.html", selfcontained = TRUE)
+
+
+# Gravel
+pal <- colorNumeric(
+  palette = "RdYlGn", 
+  domain = log(data$pc_gravel+1), 
+  reverse = TRUE)
+
+map_gravel <- leaflet(data = data, options = leafletOptions(zoomControl = TRUE, 
+                                                           zoomSnap = 0, # force le niveau de zoom à ce niveau de détail (si 0.25 et zoom = 0.8, ça le mettra à 0.75). 0 = pas de snapping
+                                                           zoomDelta = 1, # contrôle le pas de zoom aux boutons +/-
+                                                           wheelPxPerZoomLevel = 60)) %>% # contrôle le zoom avec la souris
+  addTiles() %>% 
+  addFullscreenControl() %>%
+  setView( lng = 9, lat = 42.2, zoom = 8 ) %>% 
+  addProviderTiles("Esri.WorldImagery") %>% 
+  addCircleMarkers( ~ Longitude, ~ Latitude, popup = ~ paste0("<strong>Station : </strong>", Sample, 
+                                  "<br><strong>Profondeur : </strong>", Profondeur, " m", 
+                                  "<br><strong>Gravel : </strong>", round(pc_gravel, 1), " %"), label = ~ as.character(round(pc_gravel, 1)), color = ~ pal(log(pc_gravel+1)), radius  = radius_size, fillOpacity = 1, stroke = FALSE) %>% 
+  addLegend('bottomright', pal = pal, values = log(data$pc_gravel+1), 
+            title = 'log(Graviers (%) + 1)', 
+            opacity = 1)
+map_gravel
+
+saveWidget(map_gravel, file = "../figures/Gravel.html", selfcontained = TRUE)
+
+
+```
+
+
+**Conclusion** : on semble être sur quelque chose d'assez homogène sur toute la Corse, pas de grosse tendance contrairement à ce qu'on pourrait attendre / penser
+
+
+
+---
+
+## Rhodolithes
+
+Cartographie du recouvrement par les rhodolithes (visuel d'après les vidéos)
+
+```{r, echo = FALSE}
+# Rhodolithes
+#pal <- colorFactor(rev(c("red", "orange", "yellow", "green", "darkgreen")), domain = c(0, 5, 30, 70, 95))
+pal <- colorFactor(rev(c("green", "red")), domain = c("Presence", "Absence"))
+data$RHO_presence <- NA
+data$RHO_presence[data$Recouvrement_Rhodolithes_video > 0] <- "Presence"
+data$RHO_presence[data$Recouvrement_Rhodolithes_video == 0] <- "Absence"
+
+map_RHO <- leaflet(data = data, options = leafletOptions(zoomControl = TRUE, 
+                                                           zoomSnap = 0, # force le niveau de zoom à ce niveau de détail (si 0.25 et zoom = 0.8, ça le mettra à 0.75). 0 = pas de snapping
+                                                           zoomDelta = 1, # contrôle le pas de zoom aux boutons +/-
+                                                           wheelPxPerZoomLevel = 60)) %>% # contrôle le zoom avec la souris
+  addTiles() %>% 
+  addFullscreenControl() %>%
+  setView( lng = 9, lat = 42.2, zoom = 8 ) %>% 
+  addProviderTiles("Esri.WorldImagery") %>% 
+  addCircleMarkers( ~ Longitude, ~ Latitude, popup = ~ paste0("<strong>Station : </strong>", Sample, 
+                                  "<br><strong>Profondeur : </strong>", Profondeur, " m", 
+                                  "<br><strong>Rhodololithes : </strong>", Recouvrement_Rhodolithes_video, " %"), label = ~ as.character(Recouvrement_Rhodolithes_video), color = ~ pal(RHO_presence), radius  = radius_size, fillOpacity = 1, stroke = FALSE) %>% 
+  addLegend('bottomright', pal = pal, values = data$RHO_presence, 
+            title = 'Rhodolithes vidéo (%)', 
+            opacity = 1)
+map_RHO
+
+saveWidget(map_RHO, file = "../figures/RHO.html", selfcontained = TRUE)
+
+```
+
+
+---
+
+# Classification des échantillons
+
+Pour lire les graphiques contenant les diminutifs des noms d'habitats :   
+
+**Det. côtier** => Detritique cotier (DC)   
+**Cymodocea SFBC** => Association a Cymodocea nodosa sur SFBC   
+**SFBC** => Sables Fins Bien Calibres (SFBC)   
+**P.oceanica** => Herbier a Posidonia oceanica   
+**Zone bathyale** => Zone bathyale   
+**Algues infra** => Algues infralittorales   
+**Det. Envasé** => Fonds detritiques envases (DE)   
+**Matte Morte** => Association de la matte morte de Posidonia oceanica   
+**Coralligene** => Coralligene   
+**Habitats artificiels** => Habitats artificiels   
+**SGCF - infra** => Sables et Graviers sous influence des Courants de Fond (SGCF) - infralittoral   
+**SGCF - circa** => Sables et Graviers sous influence des Courants de Fond (SGCF) - circalittoral  
+
+## USDA
+
+Classes de sol d'après la nomenclature USDA.  
+
+[<img src = "../biblio/USDA_classification.jpg">](USDA_classification.jpg)
+
+```{r, echo = FALSE}
+# Classe substrat
+pal <- colorFactor(c("brown", "bisque2", "burlywood1", "darkorchid1", "darkolivegreen3"), domain = c("Loam", "Loamy sand", "Sand", "Sandy loam", "Silty loam"))
+
+map_classe <- leaflet(data = data, options = leafletOptions(zoomControl = TRUE, 
+                                                           zoomSnap = 0, # force le niveau de zoom à ce niveau de détail (si 0.25 et zoom = 0.8, ça le mettra à 0.75). 0 = pas de snapping
+                                                           zoomDelta = 1, # contrôle le pas de zoom aux boutons +/-
+                                                           wheelPxPerZoomLevel = 60)) %>% # contrôle le zoom avec la souris
+  addTiles() %>% 
+  addFullscreenControl() %>%
+  setView( lng = 9, lat = 42.2, zoom = 8 ) %>% 
+  addProviderTiles("Esri.WorldImagery") %>% 
+  addCircleMarkers( ~ Longitude, ~ Latitude, popup = ~ paste0("<strong>Station : </strong>", Sample, 
+                                  "<br><strong>Profondeur : </strong>", Profondeur, " m", 
+                                  "<br><strong>Sand : </strong>", round(pc_sand, 1), " %", 
+                                  "<br><strong>Silt : </strong>", round(pc_silt, 1), " %", 
+                                  "<br><strong>Clay : </strong>", round(pc_clay, 1), " %"), label = ~ as.character(classe_USDA), color = ~ pal(classe_USDA), radius  = radius_size, fillOpacity = 1, stroke = FALSE) %>% 
+  addLegend('bottomright', pal = pal, values = data$classe_USDA, 
+            title = 'Classe de substrat USDA', 
+            opacity = 1)
+map_classe
+
+saveWidget(map_classe, file = "../figures/Classe_USDA.html", selfcontained = TRUE)
+
+# Graphique en barre avec la proportion de chaque type de sol par habitat
+ggplot(data %>% filter(!is.na(Habitat)), aes(x = Habitat, fill = classe_USDA)) +
+  geom_bar(position = "fill") +
+  labs(title = "",
+       x = "Habitat",
+       y = "Proportion") +
+  scale_y_continuous(labels = scales::percent_format(scale = 100)) +
+  theme(
+    axis.text.y = element_text(size = 10, color = "black"),
+    axis.title.y = element_text(face = "bold", size = 11, color = "black"),
+    axis.text.x = element_text(size = 10, color = "black", angle = 90, hjust = 1, vjust = 1, col = "darkGrey"),
+    axis.ticks.x = element_blank()) +
+  guides(fill = guide_legend(title = "Typologie de sol"))
+
+```
+
+
+
+
+---
+
+## Shepard
+
+[<img src = "../biblio/shepard_classification.jpg">](shepard_classification.jpg)
+
+Classes de sol d'après la nomenclature Shepard (description sédiments **grossiers**).
+
+
+```{r, echo = FALSE}
+# Classe substrat
+pal <- colorFactor(c("orange", "yellow", "white"), domain = c("GRAVEL", "GRAVELLY SEDIMENT", "SAND SILT CLAY"))
+
+map_classe <- leaflet(data = data, options = leafletOptions(zoomControl = TRUE, 
+                                                           zoomSnap = 0, # force le niveau de zoom à ce niveau de détail (si 0.25 et zoom = 0.8, ça le mettra à 0.75). 0 = pas de snapping
+                                                           zoomDelta = 1, # contrôle le pas de zoom aux boutons +/-
+                                                           wheelPxPerZoomLevel = 60)) %>% # contrôle le zoom avec la souris
+  addTiles() %>% 
+  addFullscreenControl() %>%
+  setView( lng = 9, lat = 42.2, zoom = 8 ) %>% 
+  addProviderTiles("Esri.WorldImagery") %>% 
+  addCircleMarkers( ~ Longitude, ~ Latitude, popup = ~ paste0("<strong>Station : </strong>", Sample, 
+                                  "<br><strong>Profondeur : </strong>", Profondeur, " m", 
+                                  "<br><strong>Gravel : </strong>", round(100 - pc_sand - pc_silt - pc_clay, 1), " %", 
+                                  "<br><strong>Sand : </strong>", round(pc_sand, 1), " %", 
+                                  "<br><strong>Silt and clay : </strong>", round(pc_silt + pc_clay, 1), " %"), label = ~ as.character(classe_Shepard_coarse), color = ~ pal(classe_Shepard_coarse), radius  = radius_size, fillOpacity = 1, stroke = FALSE) %>% 
+  addLegend('bottomright', pal = pal, values = data$classe_Shepard_coarse, 
+            title = 'Classe de substrat Shepard coarse', 
+            opacity = 1)
+map_classe
+
+saveWidget(map_classe, file = "../figures/Classe_Shepard_coarse.html", selfcontained = TRUE)
+```
+
+
+Classes de sol d'après la nomenclature Shepard (description sédiments **fins**)
+
+```{r, echo = FALSE}
+# Classe substrat
+pal <- colorFactor(c("yellow", "lightblue", "blue", "lightgreen"), domain = c("SAND", "SANDY SILT", "SILT", "SILTY SAND"))
+
+map_classe <- leaflet(data = data, options = leafletOptions(zoomControl = TRUE, 
+                                                           zoomSnap = 0, # force le niveau de zoom à ce niveau de détail (si 0.25 et zoom = 0.8, ça le mettra à 0.75). 0 = pas de snapping
+                                                           zoomDelta = 1, # contrôle le pas de zoom aux boutons +/-
+                                                           wheelPxPerZoomLevel = 60)) %>% # contrôle le zoom avec la souris
+  addTiles() %>% 
+  addFullscreenControl() %>%
+  setView( lng = 9, lat = 42.2, zoom = 8 ) %>% 
+  addProviderTiles("Esri.WorldImagery") %>% 
+  addCircleMarkers( ~ Longitude, ~ Latitude, popup = ~ paste0("<strong>Station : </strong>", Sample, 
+                                  "<br><strong>Profondeur : </strong>", Profondeur, " m", 
+                                  "<br><strong>Sand : </strong>", round(pc_sand, 1), " %", 
+                                  "<br><strong>Silt : </strong>", round(pc_silt, 1), " %", 
+                                  "<br><strong>Clay : </strong>", round(pc_clay, 1), " %"), label = ~ as.character(classe_Shepard_fine), color = ~ pal(classe_Shepard_fine), radius  = radius_size, fillOpacity = 1, stroke = FALSE) %>% 
+  addLegend('bottomright', pal = pal, values = data$classe_Shepard_fine, 
+            title = 'Classe de substrat Shepard fine', 
+            opacity = 1)
+map_classe
+
+saveWidget(map_classe, file = "../figures/Classe_Shepard_fine.html", selfcontained = TRUE)
+
+# Graphique en barre avec la proportion de chaque type de sol par habitat
+ggplot(data %>% filter(!is.na(Habitat)), aes(x = Habitat, fill = classe_Shepard_fine)) +
+  geom_bar(position = "fill") +
+  labs(title = "",
+       x = "Habitat",
+       y = "Proportion") +
+  scale_y_continuous(labels = scales::percent_format(scale = 100)) +
+  theme(
+    axis.text.y = element_text(size = 10, color = "black"),
+    axis.title.y = element_text(face = "bold", size = 11, color = "black"),
+    axis.text.x = element_text(size = 10, color = "black", angle = 90, hjust = 1, vjust = 1, col = "darkGrey"),
+    axis.ticks.x = element_blank()) +
+  guides(fill = guide_legend(title = "Typologie de sol"))
+```
+
+
+
+---
+
+## Folk
+
+[<img src = "../biblio/folk_classification.jpg">](folk_classification.jpg)
+
+
+Classes de sol d'après la nomenclature Folk (description sédiments **grossiers**).
+
+
+```{r, echo = FALSE}
+# Classe substrat
+pal <- colorFactor(c("yellow", "yellow", "orange", "yellow", "yellow", "white", "yellow", "white", "yellow", "white"), 
+                   domain = c("(g)mS", "(g)S",  "G", "gmS", "gS", "mS", "msG", "S", "sG", "sM"))
+
+map_classe <- leaflet(data = data, options = leafletOptions(zoomControl = TRUE, 
+                                                           zoomSnap = 0, # force le niveau de zoom à ce niveau de détail (si 0.25 et zoom = 0.8, ça le mettra à 0.75). 0 = pas de snapping
+                                                           zoomDelta = 1, # contrôle le pas de zoom aux boutons +/-
+                                                           wheelPxPerZoomLevel = 60)) %>% # contrôle le zoom avec la souris
+  addTiles() %>% 
+  addFullscreenControl() %>%
+  setView( lng = 9, lat = 42.2, zoom = 8 ) %>% 
+  addProviderTiles("Esri.WorldImagery") %>% 
+  addCircleMarkers( ~ Longitude, ~ Latitude, popup = ~ paste0("<strong>Station : </strong>", Sample, 
+                                  "<br><strong>Profondeur : </strong>", Profondeur, " m", 
+                                  "<br><strong>Gravel : </strong>", round(100 - pc_sand - pc_silt - pc_clay, 1), " %", 
+                                  "<br><strong>Sand : </strong>", round(pc_sand, 1), " %", 
+                                  "<br><strong>Silt and clay : </strong>", round(pc_silt + pc_clay, 1), " %"), label = ~ as.character(classe_Folk_coarse), color = ~ pal(classe_Folk_coarse), radius  = radius_size, fillOpacity = 1, stroke = FALSE) %>% 
+  addLegend('bottomright', pal = pal, values = data$classe_Folk_coarse, 
+            title = 'Classe de substrat Folk coarse', 
+            opacity = 1)
+map_classe
+
+saveWidget(map_classe, file = "../figures/Classe_Folk_coarse.html", selfcontained = TRUE)
+```
+
+
+Classes de sol d'après la nomenclature Folk (description sédiments **fins**)
+
+```{r, echo = FALSE}
+# Classe substrat
+pal <- colorFactor(c("lightgreen", "yellow", "lightblue", "lightgreen"), domain = c("mS", "S",  "sZ", "zS"))
+
+map_classe <- leaflet(data = data, options = leafletOptions(zoomControl = TRUE, 
+                                                           zoomSnap = 0, # force le niveau de zoom à ce niveau de détail (si 0.25 et zoom = 0.8, ça le mettra à 0.75). 0 = pas de snapping
+                                                           zoomDelta = 1, # contrôle le pas de zoom aux boutons +/-
+                                                           wheelPxPerZoomLevel = 60)) %>% # contrôle le zoom avec la souris
+  addTiles() %>% 
+  addFullscreenControl() %>%
+  setView( lng = 9, lat = 42.2, zoom = 8 ) %>% 
+  addProviderTiles("Esri.WorldImagery") %>% 
+  addCircleMarkers( ~ Longitude, ~ Latitude, popup = ~ paste0("<strong>Station : </strong>", Sample, 
+                                  "<br><strong>Profondeur : </strong>", Profondeur, " m", 
+                                  "<br><strong>Sand : </strong>", round(pc_sand, 1), " %", 
+                                  "<br><strong>Silt : </strong>", round(pc_silt, 1), " %", 
+                                  "<br><strong>Clay : </strong>", round(pc_clay, 1), " %"), label = ~ as.character(classe_Folk_fine), color = ~ pal(classe_Folk_fine), radius  = radius_size, fillOpacity = 1, stroke = FALSE) %>% 
+  addLegend('bottomright', pal = pal, values = data$classe_Folk_fine, 
+            title = 'Classe de substrat Folk fine', 
+            opacity = 1)
+map_classe
+
+saveWidget(map_classe, file = "../figures/Classe_Folk_fine.html", selfcontained = TRUE)
+
+# Graphique en barre avec la proportion de chaque type de sol par habitat
+ggplot(data %>% filter(!is.na(Habitat)), aes(x = Habitat, fill = classe_Folk_fine)) +
+  geom_bar(position = "fill") +
+  labs(title = "",
+       x = "Habitat",
+       y = "Proportion") +
+  scale_y_continuous(labels = scales::percent_format(scale = 100)) +
+  theme(
+    axis.text.y = element_text(size = 10, color = "black"),
+    axis.title.y = element_text(face = "bold", size = 11, color = "black"),
+    axis.text.x = element_text(size = 10, color = "black", angle = 90, hjust = 1, vjust = 1, col = "darkGrey"),
+    axis.ticks.x = element_blank()) +
+  guides(fill = guide_legend(title = "Typologie de sol"))
+
+```
+
+
+---
+
+# ACP
+
+## Granulométrie
+
+ACP sur les données de granulométrie seules car nombreuses variables
+
+```{r, echo = FALSE}
+# ACP grain size
+data_PCA <- data[, grain_size]
+PCA <- princomp(data_PCA, cor = TRUE)
+#barplot(100 * PCA$sdev^2 / sum(PCA$sdev^2))
+#cumsum(100 * (PCA$sdev^2) / sum(PCA$sdev^2))
+
+# Plot PCA
+gg <- fviz_pca_var(PCA, col.var = "contrib") +
+  scale_color_gradient2(low = "white", mid = "blue", 
+                        high = "red", midpoint = 1.5) + theme_minimal()
+ggplotly(gg)
+
+# Corrélations dans le jeu de données
+#cor(data_PCA$Skewness, data_PCA$Kurtosis, use = "pairwise.complete.obs") # 0.85
+#cor(data_PCA$Skewness, data_PCA$d50, use = "pairwise.complete.obs") # -0.10
+#cor(data_PCA$Mode, data_PCA$d50, use = "pairwise.complete.obs") # 0.71
+#cor(data_PCA$Mode, data_PCA$Median, use = "pairwise.complete.obs") # 0.71
+#cor(data_PCA$d50, data_PCA$pc_2, use = "pairwise.complete.obs") # -0.25
+# cor(data_PCA$Median, data_PCA$Mean, use = "pairwise.complete.obs") # 0.95
+
+jpeg(filename = "../figures/ACP_grain_size.jpg", width = 20, height = 12, res = 300, units = "cm")
+gg
+dev.off()
+```
+
+D'après Antonio, on peut se contenter de regarder la valeur médiane de la distribution, qui est un bon indicateur  (et très corrélé à la moyenne : 0.95).  
+
+On gardera par la suite la médiane, et les 4 compartiments : argiles, limons, sables et graviers
+
+
+
+---
+
+## Données laboratoire
+```{r, echo = FALSE}
+# ACP laboratoire
+data_PCA <- data[, c("CaCO3", "LOI_550", "Median", "pc_clay", "pc_silt", "pc_sand", "pc_gravel")]
+PCA <- princomp(data_PCA, cor = TRUE)
+
+# Plot PCA
+gg <- fviz_pca_var(PCA, col.var = "contrib") +
+  scale_color_gradient2(low = "white", mid = "blue", 
+                        high = "red", midpoint = 1.5) + theme_minimal()
+ggplotly(gg)
+
+jpeg(filename = "../figures/ACP_laboratoire.jpg", width = 20, height = 12, res = 300, units = "cm")
+gg
+dev.off()
+```
+
+
+---
+
+## Données laboratoire et localisation
+```{r, echo = FALSE}
+# ACP laboratoire
+data_PCA <- data[, c("CaCO3", "LOI_550", "Median", "pc_clay", "pc_silt", "pc_sand", "pc_gravel", "dist_land", "Profondeur")]
+PCA <- princomp(data_PCA, cor = TRUE)
+
+# Plot PCA
+gg <- fviz_pca_var(PCA, col.var = "contrib") +
+  scale_color_gradient2(low = "white", mid = "blue", 
+                        high = "red", midpoint = 1.5) + theme_minimal()
+ggplotly(gg)
+
+jpeg(filename = "../figures/ACP_laboratoire_localisation.jpg", width = 20, height = 12, res = 300, units = "cm")
+gg
+dev.off()
+```
+
+
+
+---
+
+## Données laboratoire et pressions
+```{r, echo = FALSE}
+# ACP laboratoire
+data_PCA <- data[, c("CaCO3", "LOI_550", "Median", "pc_clay", "pc_silt", "pc_sand", "pc_gravel", colnames(data)[grep("mean_", colnames(data))])]
+PCA <- princomp(data_PCA, cor = TRUE)
+
+# Plot PCA
+gg <- fviz_pca_var(PCA, col.var = "contrib") +
+  scale_color_gradient2(low = "white", mid = "blue", 
+                        high = "red", midpoint = 1.5) + theme_minimal()
+ggplotly(gg)
+
+jpeg(filename = "../figures/ACP_laboratoire_pressions.jpg", width = 20, height = 12, res = 300, units = "cm")
+gg
+dev.off()
+```
+
+
+
+---
+
+# Clustering des stations
+
+## LOI 550, CaCO3 et Median
+
+K-means sur la granulométrie (**Median**), **CaCO3** et **LOI 550** avec le meilleur nombre de clusters entre 4 et 10 : 4 clusters
+
+Affichage de l'ACP avec les 3 variables et les clusters en couleur. Globalement :  
+   - **Cluster 1** : Teneur moyenne en carbonates / Granulométrie moyenne / Teneur MO moyenne  
+   - **Cluster 2** : Teneur moyenne en carbonates / Granulométrie fine / Teneur MO élevée  
+   - **Cluster 3** : Teneur moyenne en carbonates / Granulométrie grossière / Teneur MO faible  
+   - **Cluster 4** : Teneur faible en carbonates / Granulométrie moyenne / Teneur MO faible  
+   
+```{r, include = FALSE}
+nb_clust <- NbClust(data = data[, c("CaCO3", "LOI_550", "Median")], diss = NULL, distance = "euclidean", min.nc = 4, max.nc = 10, method = "kmeans")
+n_clust <- as.numeric(names(which.max(table(nb_clust$Best.nc[1, ]))))
+data$Group3 <- nb_clust$Best.partition
+
+# Graphique des individus sur le 1er plan de l'ACP
+data_PCA <- data[, c("CaCO3", "LOI_550", "Median")]
+PCA <- princomp(data_PCA, cor = TRUE)
+```
+
+
+```{r, echo = FALSE}
+gg <- fviz_pca_biplot(PCA, col.ind = factor(data$Group3), geom = c("point")) + scale_color_manual(values=c("#ff0000", "#ffa500", "#ffff00", "#00ff00")) #scale_color_hue()#+
+  #scale_color_gradient2(low = "white", mid = "blue", 
+  #                      high = "red", midpoint = 1.5, name = "FD") + theme_minimal()
+ggplotly(gg)
+
+```
+
+
+
+```{r, echo = FALSE}
+# Cartographie des groupes
+
+#pal <- colorFactor(c("blue", "red", "orange", "yellow", "green", "darkgreen")[1:n_clust], domain = c(1, 2, 3, 4, 5, 6)[1:n_clust])
+pal <- colorFactor(c("red", "orange", "yellow", "green"), domain = c(1, 2, 3, 4))
+
+m <- leaflet(data = data, options = leafletOptions(zoomControl = TRUE, 
+                                                           zoomSnap = 0, # force le niveau de zoom à ce niveau de détail (si 0.25 et zoom = 0.8, ça le mettra à 0.75). 0 = pas de snapping
+                                                           zoomDelta = 1, # contrôle le pas de zoom aux boutons +/-
+                                                           wheelPxPerZoomLevel = 60)) %>% # contrôle le zoom avec la souris
+  addTiles() %>% 
+  addFullscreenControl() %>%
+  setView( lng = 9, lat = 42.2, zoom = 8 ) %>% 
+  addProviderTiles("Esri.WorldImagery") %>% 
+  addCircleMarkers( ~ Longitude, ~ Latitude, popup = ~ paste0("<strong>Station : </strong>", Sample, 
+                                  "<br><strong>Profondeur : </strong>", Profondeur, " m", 
+                                  "<br><strong>Cluster : </strong>", Group3), label = ~ as.character(Group3), color = ~ pal(Group3), radius  = radius_size, fillOpacity = 1, stroke = FALSE) %>% 
+  addLegend('bottomright', pal = pal, values = data$Group3, 
+            title = 'Clusters', 
+            opacity = 1)
+m
+
+saveWidget(m, file = "../figures/Clusters.html", selfcontained = TRUE)
+
+# Graphique en barre avec la proportion de chaque cluster par habitat
+ggplot(data %>% filter(!is.na(Habitat)), aes(x = Habitat, fill = factor(Group3))) +
+  geom_bar(position = "fill") +
+  labs(title = "",
+       x = "Habitat",
+       y = "Proportion") +
+  scale_y_continuous(labels = scales::percent_format(scale = 100)) +
+  theme(
+    axis.text.y = element_text(size = 10, color = "black"),
+    axis.title.y = element_text(face = "bold", size = 11, color = "black"),
+    axis.text.x = element_text(size = 10, color = "black", angle = 90, hjust = 1, vjust = 1, col = "darkGrey"),
+    axis.ticks.x = element_blank()) +
+  guides(fill = guide_legend(title = "Cluster"))
+
+```
+
+
+```{r, echo = FALSE}
+## Median vs cluster
+ggplot(data = data %>% filter(!is.na(Group3)), aes(x = factor(Group3), y = Median)) +
+  geom_boxplot(fill = "purple") +
+  theme(strip.background = element_rect(colour = "black", fill = "white", size = 1.5, linetype = "solid")) + 
+  theme_set(theme_grey()) +
+  theme(
+    legend.position = "none",
+    axis.text.y = element_text(size = 10, color = "black"),
+    axis.title.y = element_text(face = "bold", size = 11, color = "black"),
+    axis.text.x = element_text(size = 10, color = "black", angle = 90, hjust = 1, vjust = 1, col = "darkGrey"),
+    axis.ticks.x = element_blank()) +
+  guides(fill = guide_legend(title = "")) + 
+  xlab("") + 
+  ylab("Median")
+
+## LOI_550 vs cluster
+ggplot(data = data %>% filter(!is.na(Group3)), aes(x = factor(Group3), y = LOI_550)) +
+  geom_boxplot(fill = "purple") +
+  theme(strip.background = element_rect(colour = "black", fill = "white", size = 1.5, linetype = "solid")) + 
+  theme_set(theme_grey()) +
+  theme(
+    legend.position = "none",
+    axis.text.y = element_text(size = 10, color = "black"),
+    axis.title.y = element_text(face = "bold", size = 11, color = "black"),
+    axis.text.x = element_text(size = 10, color = "black", angle = 90, hjust = 1, vjust = 1, col = "darkGrey"),
+    axis.ticks.x = element_blank()) +
+  guides(fill = guide_legend(title = "")) + 
+  xlab("") + 
+  ylab("LOI 550")
+
+## CaCO3 vs cluster
+ggplot(data = data %>% filter(!is.na(Group3)), aes(x = factor(Group3), y = CaCO3)) +
+  geom_boxplot(fill = "purple") +
+  theme(strip.background = element_rect(colour = "black", fill = "white", size = 1.5, linetype = "solid")) + 
+  theme_set(theme_grey()) +
+  theme(
+    legend.position = "none",
+    axis.text.y = element_text(size = 10, color = "black"),
+    axis.title.y = element_text(face = "bold", size = 11, color = "black"),
+    axis.text.x = element_text(size = 10, color = "black", angle = 90, hjust = 1, vjust = 1, col = "darkGrey"),
+    axis.ticks.x = element_blank()) +
+  guides(fill = guide_legend(title = "")) + 
+  xlab("") + 
+  ylab("CaCO3 (%)")
+  
+```
+
+
+
+---
+
+## LOI 550, CaCO3 et pc_clay / pc_silt / pc_sand / pc_gravel
+
+K-means sur la granulométrie (**pc_clay / pc_silt / pc_sand / pc_gravel**), **CaCO3** et **LOI 55**0 avec le meilleur nombre de clusters entre 4 et 10 : **4 clusters**  
+
+Affichage de l'ACP avec les 3 variables et les clusters en couleur. Globalement :  
+   - **Cluster 1** : Granulométrie moyenne / Teneur MO moyenne / Teneur en carbonates ?  
+   - **Cluster 2** : Granulométrie fine / Teneur MO élevée / Teneur en carbonates ?  
+   - **Cluster 3** : Granulométrie grossière / Teneur MO faible / Teneur en carbonates ?  
+   - **Cluster 4** : Granulométrie moyenne / Teneur MO faible / Teneur en carbonates ?  
+   
+```{r, include = FALSE}
+nb_clust <- NbClust(data = data[, c("CaCO3", "LOI_550", "pc_clay", "pc_silt", "pc_sand", "pc_gravel")], diss = NULL, distance = "euclidean", min.nc = 4, max.nc = 10, method = "kmeans")
+n_clust <- as.numeric(names(which.max(table(nb_clust$Best.nc[1, ]))))
+data$Group6 <- nb_clust$Best.partition
+
+# Graphique des individus sur le 1er plan de l'ACP
+data_PCA <- data[, c("CaCO3", "LOI_550", "pc_clay", "pc_silt", "pc_sand", "pc_gravel")]
+PCA <- princomp(data_PCA, cor = TRUE)
+```
+
+
+```{r, echo = FALSE}
+gg <- fviz_pca_biplot(PCA, col.ind = factor(data$Group6), geom = c("point")) + scale_color_manual(values=c("#ff0000", "#ffa500", "#ffff00", "#00ff00")) #scale_color_hue()#+
+  #scale_color_gradient2(low = "white", mid = "blue", 
+  #                      high = "red", midpoint = 1.5, name = "FD") + theme_minimal()
+ggplotly(gg)
+
+```
+
+
+
+```{r, echo = FALSE}
+# Cartographie des groupes
+
+#pal <- colorFactor(c("blue", "red", "orange", "yellow", "green", "darkgreen")[1:n_clust], domain = c(1, 2, 3, 4, 5, 6)[1:n_clust])
+pal <- colorFactor(c("red", "orange", "yellow", "green"), domain = c(1, 2, 3, 4))
+
+m <- leaflet(data = data, options = leafletOptions(zoomControl = TRUE, 
+                                                           zoomSnap = 0, # force le niveau de zoom à ce niveau de détail (si 0.25 et zoom = 0.8, ça le mettra à 0.75). 0 = pas de snapping
+                                                           zoomDelta = 1, # contrôle le pas de zoom aux boutons +/-
+                                                           wheelPxPerZoomLevel = 60)) %>% # contrôle le zoom avec la souris
+  addTiles() %>% 
+  addFullscreenControl() %>%
+  setView( lng = 9, lat = 42.2, zoom = 8 ) %>% 
+  addProviderTiles("Esri.WorldImagery") %>% 
+  addCircleMarkers( ~ Longitude, ~ Latitude, popup = ~ paste0("<strong>Station : </strong>", Sample, 
+                                  "<br><strong>Profondeur : </strong>", Profondeur, " m", 
+                                  "<br><strong>Cluster : </strong>", Group6), label = ~ as.character(Group6), color = ~ pal(Group6), radius  = radius_size, fillOpacity = 1, stroke = FALSE) %>% 
+  addLegend('bottomright', pal = pal, values = data$Group6, 
+            title = 'Clusters', 
+            opacity = 1)
+m
+
+saveWidget(m, file = "../figures/Clusters.html", selfcontained = TRUE)
+
+
+# Graphique en barre avec la proportion de chaque cluster par habitat
+ggplot(data %>% filter(!is.na(Habitat)), aes(x = Habitat, fill = factor(Group6))) +
+  geom_bar(position = "fill") +
+  labs(title = "",
+       x = "Habitat",
+       y = "Proportion") +
+  scale_y_continuous(labels = scales::percent_format(scale = 100)) +
+  theme(
+    axis.text.y = element_text(size = 10, color = "black"),
+    axis.title.y = element_text(face = "bold", size = 11, color = "black"),
+    axis.text.x = element_text(size = 10, color = "black", angle = 90, hjust = 1, vjust = 1, col = "darkGrey"),
+    axis.ticks.x = element_blank()) +
+  guides(fill = guide_legend(title = "Cluster"))
+
+``` 
+
+```{r, echo = FALSE}
+## LOI_550 vs cluster
+ggplot(data = data %>% filter(!is.na(Group6)), aes(x = factor(Group6), y = LOI_550)) +
+  geom_boxplot(fill = "purple") +
+  theme(strip.background = element_rect(colour = "black", fill = "white", size = 1.5, linetype = "solid")) + 
+  theme_set(theme_grey()) +
+  theme(
+    legend.position = "none",
+    axis.text.y = element_text(size = 10, color = "black"),
+    axis.title.y = element_text(face = "bold", size = 11, color = "black"),
+    axis.text.x = element_text(size = 10, color = "black", angle = 90, hjust = 1, vjust = 1, col = "darkGrey"),
+    axis.ticks.x = element_blank()) +
+  guides(fill = guide_legend(title = "")) + 
+  xlab("") + 
+  ylab("LOI 550")
+
+## CaCO3 vs cluster
+ggplot(data = data %>% filter(!is.na(Group6)), aes(x = factor(Group6), y = CaCO3)) +
+  geom_boxplot(fill = "purple") +
+  theme(strip.background = element_rect(colour = "black", fill = "white", size = 1.5, linetype = "solid")) + 
+  theme_set(theme_grey()) +
+  theme(
+    legend.position = "none",
+    axis.text.y = element_text(size = 10, color = "black"),
+    axis.title.y = element_text(face = "bold", size = 11, color = "black"),
+    axis.text.x = element_text(size = 10, color = "black", angle = 90, hjust = 1, vjust = 1, col = "darkGrey"),
+    axis.ticks.x = element_blank()) +
+  guides(fill = guide_legend(title = "")) + 
+  xlab("") + 
+  ylab("CaCO3 (%)")
+
+## pc_clay + pc_silt vs cluster
+ggplot(data = data %>% filter(!is.na(Group6)), aes(x = factor(Group6), y = pc_clay + pc_silt)) +
+  geom_boxplot(fill = "purple") +
+  theme(strip.background = element_rect(colour = "black", fill = "white", size = 1.5, linetype = "solid")) + 
+  theme_set(theme_grey()) +
+  theme(
+    legend.position = "none",
+    axis.text.y = element_text(size = 10, color = "black"),
+    axis.title.y = element_text(face = "bold", size = 11, color = "black"),
+    axis.text.x = element_text(size = 10, color = "black", angle = 90, hjust = 1, vjust = 1, col = "darkGrey"),
+    axis.ticks.x = element_blank()) +
+  guides(fill = guide_legend(title = "")) + 
+  xlab("") + 
+  ylab("Argiles + limonts (%)")
+
+## pc_sand vs cluster
+ggplot(data = data %>% filter(!is.na(Group6)), aes(x = factor(Group6), y = pc_sand)) +
+  geom_boxplot(fill = "purple") +
+  theme(strip.background = element_rect(colour = "black", fill = "white", size = 1.5, linetype = "solid")) + 
+  theme_set(theme_grey()) +
+  theme(
+    legend.position = "none",
+    axis.text.y = element_text(size = 10, color = "black"),
+    axis.title.y = element_text(face = "bold", size = 11, color = "black"),
+    axis.text.x = element_text(size = 10, color = "black", angle = 90, hjust = 1, vjust = 1, col = "darkGrey"),
+    axis.ticks.x = element_blank()) +
+  guides(fill = guide_legend(title = "")) + 
+  xlab("") + 
+  ylab("Sables (%)")
+
+## pc_gravel vs cluster
+ggplot(data = data %>% filter(!is.na(Group6)), aes(x = factor(Group6), y = pc_gravel)) +
+  geom_boxplot(fill = "purple") +
+  theme(strip.background = element_rect(colour = "black", fill = "white", size = 1.5, linetype = "solid")) + 
+  theme_set(theme_grey()) +
+  theme(
+    legend.position = "none",
+    axis.text.y = element_text(size = 10, color = "black"),
+    axis.title.y = element_text(face = "bold", size = 11, color = "black"),
+    axis.text.x = element_text(size = 10, color = "black", angle = 90, hjust = 1, vjust = 1, col = "darkGrey"),
+    axis.ticks.x = element_blank()) +
+  guides(fill = guide_legend(title = "")) + 
+  xlab("") + 
+  ylab("Graviers (%)")
+  
+```
+
+
+---
+
+# Liens composition et environnement
+
+## Granolumétrie
+
+### Taille médiane
+
+
+```{r, echo = FALSE}
+
+# Distance to land
+plot(Median ~ dist_land, data, pch = 16, cex = 0.5, xlab = "Distance à la côte (m)")
+summary(lm(Median ~ dist_land, data))
+
+# Profondeur
+plot(Median ~ Profondeur, data, pch = 16, cex = 0.5, xlab = "Profondeur (m)")
+summary(lm(Median ~ Profondeur, data))
+```
+
+
+```{r, echo = FALSE}
+
+# Habitat
+ggplot(data = data %>% filter(!is.na(Habitat)), aes(x = Habitat, y = Median)) +
+  geom_boxplot(fill = "purple") +
+  theme(strip.background = element_rect(colour = "black", fill = "white", size = 1.5, linetype = "solid")) + 
+  theme_set(theme_grey()) +
+  theme(
+    legend.position = "none",
+    axis.text.y = element_text(size = 10, color = "black"),
+    axis.title.y = element_text(face = "bold", size = 11, color = "black"),
+    axis.text.x = element_text(size = 10, color = "black", angle = 90, hjust = 1, vjust = 1, col = "darkGrey"),
+    axis.ticks.x = element_blank()) +
+  guides(fill = guide_legend(title = "")) + 
+  xlab("") + 
+  ylab("Médiane (um)")
+
+# Courantologie
+plot(Median ~ Courant, data, pch = 16, cex = 0.5, xlab = "Courant de fond moyen (m/s)", ylab = "Médiane (um)")
+summary(lm(Median ~ Courant, data))
+
+# Pressions anthropiques
+plot(Median ~ p_mean_cum, data, pch = 16, cex = 0.5, xlab = "Pressions anthropiques cumulées", ylab = "Médiane (um)")
+summary(lm(Median ~ p_mean_cum, data))
+
+```
+
+
+---
+
+### Argiles
+
+```{r, echo = FALSE}
+
+# Distance to land
+plot(pc_clay ~ dist_land, data, pch = 16, cex = 0.5, xlab = "Distance à la côte (m)", ylab = "Argiles (%)")
+summary(lm(pc_clay ~ dist_land, data))
+
+# Profondeur
+plot(pc_clay ~ Profondeur, data, pch = 16, cex = 0.5, xlab = "Profondeur (m)", ylab = "Argiles (%)")
+summary(lm(pc_clay ~ Profondeur, data))
+```
+
+```{r, echo = FALSE}
+
+# Habitat
+ggplot(data = data %>% filter(!is.na(Habitat)), aes(x = Habitat, y = pc_clay)) +
+  geom_boxplot(fill = "purple") +
+  theme(strip.background = element_rect(colour = "black", fill = "white", size = 1.5, linetype = "solid")) + 
+  theme_set(theme_grey()) +
+  theme(
+    legend.position = "none",
+    axis.text.y = element_text(size = 10, color = "black"),
+    axis.title.y = element_text(face = "bold", size = 11, color = "black"),
+    axis.text.x = element_text(size = 10, color = "black", angle = 90, hjust = 1, vjust = 1, col = "darkGrey"),
+    axis.ticks.x = element_blank()) +
+  guides(fill = guide_legend(title = "")) + 
+  xlab("") + 
+  ylab("Argiles (%)")
+
+
+# Courantologie
+plot(pc_clay ~ Courant, data, pch = 16, cex = 0.5, xlab = "Courant de fond moyen (m/s)", ylab = "Argiles (%)")
+summary(lm(pc_clay ~ Courant, data))
+
+# Pressions anthropiques
+plot(pc_clay ~ p_mean_cum, data, pch = 16, cex = 0.5, xlab = "Pressions anthropiques cumulées", ylab = "Argiles (%)")
+summary(lm(pc_clay ~ p_mean_cum, data))
+
+```
+
+
+---
+
+### Limons
+
+```{r, echo = FALSE}
+
+# Distance to land
+plot(pc_silt ~ dist_land, data, pch = 16, cex = 0.5, xlab = "Distance à la côte (m)", ylab = "Limons (%)")
+summary(lm(pc_silt ~ dist_land, data))
+
+# Profondeur
+plot(pc_silt ~ Profondeur, data, pch = 16, cex = 0.5, xlab = "Profondeur (m)", ylab = "Limons (%)")
+summary(lm(pc_silt ~ Profondeur, data))
+```
+
+```{r, echo = FALSE}
+
+# Habitat
+ggplot(data = data %>% filter(!is.na(Habitat)), aes(x = Habitat, y = pc_silt)) +
+  geom_boxplot(fill = "purple") +
+  theme(strip.background = element_rect(colour = "black", fill = "white", size = 1.5, linetype = "solid")) + 
+  theme_set(theme_grey()) +
+  theme(
+    legend.position = "none",
+    axis.text.y = element_text(size = 10, color = "black"),
+    axis.title.y = element_text(face = "bold", size = 11, color = "black"),
+    axis.text.x = element_text(size = 10, color = "black", angle = 90, hjust = 1, vjust = 1, col = "darkGrey"),
+    axis.ticks.x = element_blank()) +
+  guides(fill = guide_legend(title = "")) + 
+  xlab("") + 
+  ylab("Limons (%)")
+
+
+# Courantologie
+plot(pc_silt ~ Courant, data, pch = 16, cex = 0.5, xlab = "Courant de fond moyen (m/s)", ylab = "Limons (%)")
+summary(lm(pc_silt ~ Courant, data))
+
+# Pressions anthropiques
+plot(pc_silt ~ p_mean_cum, data, pch = 16, cex = 0.5, xlab = "Pressions anthropiques cumulées", ylab = "Limons (%)")
+summary(lm(pc_silt ~ p_mean_cum, data))
+
+```
+
+
+---
+
+### Sables
+
+```{r, echo = FALSE}
+
+# Distance to land
+plot(pc_sand ~ dist_land, data, pch = 16, cex = 0.5, xlab = "Distance à la côte (m)", ylab = "Sables (%)")
+summary(lm(pc_sand ~ dist_land, data))
+
+# Profondeur
+plot(pc_sand ~ Profondeur, data, pch = 16, cex = 0.5, xlab = "Profondeur (m)", ylab = "Sables (%)")
+summary(lm(pc_sand ~ Profondeur, data))
+```
+
+```{r, echo = FALSE}
+
+# Habitat
+ggplot(data = data %>% filter(!is.na(Habitat)), aes(x = Habitat, y = pc_sand)) +
+  geom_boxplot(fill = "purple") +
+  theme(strip.background = element_rect(colour = "black", fill = "white", size = 1.5, linetype = "solid")) + 
+  theme_set(theme_grey()) +
+  theme(
+    legend.position = "none",
+    axis.text.y = element_text(size = 10, color = "black"),
+    axis.title.y = element_text(face = "bold", size = 11, color = "black"),
+    axis.text.x = element_text(size = 10, color = "black", angle = 90, hjust = 1, vjust = 1, col = "darkGrey"),
+    axis.ticks.x = element_blank()) +
+  guides(fill = guide_legend(title = "")) + 
+  xlab("") + 
+  ylab("Sables (%)")
+
+
+# Courantologie
+plot(pc_sand ~ Courant, data, pch = 16, cex = 0.5, xlab = "Courant de fond moyen (m/s)", ylab = "Sables (%)")
+summary(lm(pc_sand ~ Courant, data))
+
+# Pressions anthropiques
+plot(pc_sand ~ p_mean_cum, data, pch = 16, cex = 0.5, xlab = "Pressions anthropiques cumulées", ylab = "Sables (%)")
+summary(lm(pc_sand ~ p_mean_cum, data))
+
+```
+
+---
+
+### Graviers
+
+```{r, echo = FALSE}
+
+# Distance to land
+plot(pc_gravel ~ dist_land, data, pch = 16, cex = 0.5, xlab = "Distance à la côte (m)", ylab = "Graviers (%)")
+summary(lm(pc_gravel ~ dist_land, data))
+
+# Profondeur
+plot(pc_gravel ~ Profondeur, data, pch = 16, cex = 0.5, xlab = "Profondeur (m)", ylab = "Graviers (%)")
+summary(lm(pc_gravel ~ Profondeur, data))
+```
+
+```{r, echo = FALSE}
+
+# Habitat
+ggplot(data = data %>% filter(!is.na(Habitat)), aes(x = Habitat, y = pc_gravel)) +
+  geom_boxplot(fill = "purple") +
+  theme(strip.background = element_rect(colour = "black", fill = "white", size = 1.5, linetype = "solid")) + 
+  theme_set(theme_grey()) +
+  theme(
+    legend.position = "none",
+    axis.text.y = element_text(size = 10, color = "black"),
+    axis.title.y = element_text(face = "bold", size = 11, color = "black"),
+    axis.text.x = element_text(size = 10, color = "black", angle = 90, hjust = 1, vjust = 1, col = "darkGrey"),
+    axis.ticks.x = element_blank()) +
+  guides(fill = guide_legend(title = "")) + 
+  xlab("") + 
+  ylab("Graviers (%)")
+
+
+# Courantologie
+plot(pc_gravel ~ Courant, data, pch = 16, cex = 0.5, xlab = "Courant de fond moyen (m/s)", ylab = "Graviers (%)")
+summary(lm(pc_gravel ~ Courant, data))
+
+# Pressions anthropiques
+plot(pc_gravel ~ p_mean_cum, data, pch = 16, cex = 0.5, xlab = "Pressions anthropiques cumulées", ylab = "Graviers (%)")
+summary(lm(pc_gravel ~ p_mean_cum, data))
+
+```
+
+---
+
+## Carbonates
+
+Fort effet de la **distance à la côte** sur la teneur en CaCO3 :
+
+```{r, echo = FALSE}
+
+plot(CaCO3 ~ dist_land, data, pch = 16, cex = 0.5, xlab = "Distance à la côte (m)", ylab = "Carbonates (%)")
+
+summary(lm(CaCO3 ~ log(dist_land), data))
+
+```
+
+
+Fort effet de la **profondeur** sur la teneur en CaCO3 :
+
+```{r, echo = FALSE}
+
+plot(CaCO3 ~ Profondeur, data, pch = 16, cex = 0.5, xlab = "Profondeur (m)", ylab = "Carbonates (%)")
+
+summary(lm(CaCO3 ~ log(Profondeur), data))
+
+```
+
+
+
+```{r, echo = FALSE}
+
+# Habitat
+ggplot(data = data %>% filter(!is.na(Habitat)), aes(x = Habitat, y = CaCO3)) +
+  geom_boxplot(fill = "purple") +
+  theme(strip.background = element_rect(colour = "black", fill = "white", size = 1.5, linetype = "solid")) + 
+  theme_set(theme_grey()) +
+  theme(
+    legend.position = "none",
+    axis.text.y = element_text(size = 10, color = "black"),
+    axis.title.y = element_text(face = "bold", size = 11, color = "black"),
+    axis.text.x = element_text(size = 10, color = "black", angle = 90, hjust = 1, vjust = 1, col = "darkGrey"),
+    axis.ticks.x = element_blank()) +
+  guides(fill = guide_legend(title = "")) + 
+  xlab("") + 
+  ylab("Carbonates (%)")
+
+
+# Courantologie
+plot(CaCO3 ~ Courant, data, pch = 16, cex = 0.5, xlab = "Courant de fond moyen (m/s)", ylab = "Carbonates (%)")
+summary(lm(CaCO3 ~ Courant, data))
+
+# Pressions anthropiques
+plot(CaCO3 ~ p_mean_cum, data, pch = 16, cex = 0.5, xlab = "Pressions anthropiques cumulées", ylab = "Carbonates (%)")
+summary(lm(CaCO3 ~ p_mean_cum, data))
+
+```
+
+
+
+---
+
+## Matière organique
+
+Léger effet de la **distance à la côte** sur la teneur en matière organique (LOI_550) :
+
+```{r, echo = FALSE}
+
+plot(LOI_550 ~ dist_land, data, pch = 16, cex = 0.5, xlab = "Distance à la côte (m)", ylab = "LOI 550")
+
+summary(lm(LOI_550 ~ log(dist_land), data))
+
+```
+
+
+Fort effet de la **profondeur** sur la teneur en matière organique (LOI_550) :
+
+```{r, echo = FALSE}
+
+plot(LOI_550 ~ Profondeur, data, pch = 16, cex = 0.5, xlab = "Profondeur (m)", ylab = "LOI 550")
+
+summary(lm(LOI_550 ~ log(Profondeur), data))
+
+```
+
+
+
+```{r, echo = FALSE}
+
+# Habitat
+ggplot(data = data %>% filter(!is.na(Habitat)), aes(x = Habitat, y = LOI_550)) +
+  geom_boxplot(fill = "purple") +
+  theme(strip.background = element_rect(colour = "black", fill = "white", size = 1.5, linetype = "solid")) + 
+  theme_set(theme_grey()) +
+  theme(
+    legend.position = "none",
+    axis.text.y = element_text(size = 10, color = "black"),
+    axis.title.y = element_text(face = "bold", size = 11, color = "black"),
+    axis.text.x = element_text(size = 10, color = "black", angle = 90, hjust = 1, vjust = 1, col = "darkGrey"),
+    axis.ticks.x = element_blank()) +
+  guides(fill = guide_legend(title = "")) + 
+  xlab("") + 
+  ylab("LOI 550")
+
+
+# Courantologie
+plot(LOI_550 ~ Courant, data, pch = 16, cex = 0.5, xlab = "Courant de fond moyen (m/s)", ylab = "LOI 550")
+summary(lm(CaCO3 ~ Courant, data))
+
+# Pressions anthropiques
+plot(LOI_550 ~ p_mean_cum, data, pch = 16, cex = 0.5, xlab = "Pressions anthropiques cumulées")
+summary(lm(LOI_550 ~ p_mean_cum, data))
+
+```
+
+---
+
+Relation faible mais significative entre **carbonates** et **matière organique**  
+
+```{r, echo = FALSE}
+# Pressions anthropiques
+plot(LOI_550 ~ CaCO3, data, pch = 16, cex = 0.5, xlab = "LOI 550", ylab = "Carbonates (%)")
+summary(lm(LOI_550 ~ CaCO3, data))
+```
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE}
+
+# Export de la table avec groupes avant de transformer en shapefile
+write.table(data, "../outputs/Donnees_classes_sediments_clusters_2022.csv", sep = ":", dec = ".", row.names = FALSE)
+
+```
+
+---
+
+# Présence d'espèces associées
+
+## Rhodolithe
+
+Cartographie des observations de rhodolithes plus haut dans les "Cartes Descriptives"  
+
+```{r, echo = FALSE}
+
+# Distance à la côte
+ggplot(data = data %>% filter(!is.na(RHO_presence)) , aes(x = RHO_presence, y = dist_land)) +
+  geom_boxplot(fill = "purple") +
+  theme(strip.background = element_rect(colour = "black", fill = "white", size = 1.5, linetype = "solid")) + 
+  theme_set(theme_grey()) +
+  theme(
+    legend.position = "none",
+    axis.text.y = element_text(size = 10, color = "black"),
+    axis.title.y = element_text(face = "bold", size = 11, color = "black"),
+    axis.text.x = element_text(size = 10, color = "black", angle = 90, hjust = 1, vjust = 1, col = "darkGrey"),
+    axis.ticks.x = element_blank()) +
+  guides(fill = guide_legend(title = "")) + 
+  xlab("") + 
+  ylab("Distance à la côte (m)")
+
+summary(lm(dist_land ~ RHO_presence, data %>% filter(!is.na(RHO_presence))))
+
+
+# Profondeur
+ggplot(data = data %>% filter(!is.na(RHO_presence)) , aes(x = RHO_presence, y = Profondeur)) +
+  geom_boxplot(fill = "purple") +
+  theme(strip.background = element_rect(colour = "black", fill = "white", size = 1.5, linetype = "solid")) + 
+  theme_set(theme_grey()) +
+  theme(
+    legend.position = "none",
+    axis.text.y = element_text(size = 10, color = "black"),
+    axis.title.y = element_text(face = "bold", size = 11, color = "black"),
+    axis.text.x = element_text(size = 10, color = "black", angle = 90, hjust = 1, vjust = 1, col = "darkGrey"),
+    axis.ticks.x = element_blank()) +
+  guides(fill = guide_legend(title = "")) + 
+  xlab("") + 
+  ylab("Profondeur (m)")
+
+summary(lm(Profondeur ~ RHO_presence, data %>% filter(!is.na(RHO_presence))))
+
+
+# Habitat
+ggplot(data = data %>% filter(!is.na(Habitat)) %>% filter(!is.na(RHO_presence)) %>% filter(RHO_presence == "Presence"), aes(x = Habitat, fill = RHO_presence)) +
+  geom_bar() +
+  theme(strip.background = element_rect(colour = "black", fill = "white", size = 1.5, linetype = "solid")) + 
+  theme_set(theme_grey()) +
+  theme(
+    legend.position = "none",
+    axis.text.y = element_text(size = 10, color = "black"),
+    axis.title.y = element_text(face = "bold", size = 11, color = "black"),
+    axis.text.x = element_text(size = 10, color = "black", angle = 90, hjust = 1, vjust = 1, col = "darkGrey"),
+    axis.ticks.x = element_blank()) +
+  guides(fill = guide_legend(title = "")) + 
+  xlab("") + 
+  ylab("Nombre d'observations de rhodolithes")
+
+
+# Courantologie
+ggplot(data = data %>% filter(!is.na(RHO_presence)) , aes(x = RHO_presence, y = Courant)) +
+  geom_boxplot(fill = "purple") +
+  theme(strip.background = element_rect(colour = "black", fill = "white", size = 1.5, linetype = "solid")) + 
+  theme_set(theme_grey()) +
+  theme(
+    legend.position = "none",
+    axis.text.y = element_text(size = 10, color = "black"),
+    axis.title.y = element_text(face = "bold", size = 11, color = "black"),
+    axis.text.x = element_text(size = 10, color = "black", angle = 90, hjust = 1, vjust = 1, col = "darkGrey"),
+    axis.ticks.x = element_blank()) +
+  guides(fill = guide_legend(title = "")) + 
+  xlab("") + 
+  ylab("Courant de fond moyen (m/s)")
+
+summary(lm(Courant ~ RHO_presence, data %>% filter(!is.na(RHO_presence))))
+
+# Pressions anthropiques
+ggplot(data = data %>% filter(!is.na(RHO_presence)) , aes(x = RHO_presence, y = p_mean_cum)) +
+  geom_boxplot(fill = "purple") +
+  theme(strip.background = element_rect(colour = "black", fill = "white", size = 1.5, linetype = "solid")) + 
+  theme_set(theme_grey()) +
+  theme(
+    legend.position = "none",
+    axis.text.y = element_text(size = 10, color = "black"),
+    axis.title.y = element_text(face = "bold", size = 11, color = "black"),
+    axis.text.x = element_text(size = 10, color = "black", angle = 90, hjust = 1, vjust = 1, col = "darkGrey"),
+    axis.ticks.x = element_blank()) +
+  guides(fill = guide_legend(title = "")) + 
+  xlab("") + 
+  ylab("Pressions anthropiques cumulées")
+
+summary(lm(p_mean_cum ~ RHO_presence, data %>% filter(!is.na(RHO_presence))))
+
+
+```
+
+
+
+---
+
+## Posidonie
+
+Idées ?
+
+---
+
+## Cymodocée
+
+Idées ?
+
+---
+
+# Interpolation par krigeage
+
+A partir d'une bathymétrie de résolution 50m transformée en fichier de points (centroïdes des pixels du raster), méthode appliquée pour chaque **variable** :  
+
+- Pour chaque **habitat** :
+  - **Extraction des points** de la bathy pour tous les polygones de cet habitat
+  - **Krigeage automatique** (package "automap") sur cette grille de points, à partir des valeurs des échantillons correspondant à cet habitat, en prenant en compte une relation linéaire à la profondeur (automatiquement estimée)
+- **Concaténation** de l'ensemble des résultats par habitat pour former une grille unique de points avec valeurs de la variable estimée
+- **Transformation** en raster et export
+
+## CaCO3
+
+```{r, echo = FALSE}
+r <- raster::raster("../outputs/Cartographie_CaCO3.tif")
+raster::plot(r, main = "CaCO3 (%)", cex.main = 1.5)
+
+```
+
+---
+
+## LOI 550
+
+```{r, echo = FALSE}
+r <- raster::raster("../outputs/Cartographie_LOI_550.tif")
+raster::plot(r, main = "LOI 550", cex.main = 1.5)
+
+```
+
+---
+
+## Argiles
+
+```{r, echo = FALSE}
+r <- raster::raster("../outputs/Cartographie_pc_clay.tif")
+raster::plot(r, main = "Argiles (%)", cex.main = 1.5)
+
+```
+
+---
+
+## Limons
+
+```{r, echo = FALSE}
+r <- raster::raster("../outputs/Cartographie_pc_silt.tif")
+raster::plot(r, main = "Limons (%)", cex.main = 1.5)
+
+```
+
+---
+
+## Sables
+
+```{r, echo = FALSE}
+r <- raster::raster("../outputs/Cartographie_pc_sand.tif")
+raster::plot(r, main = "Sables (%)", cex.main = 1.5)
+
+```
+
+---
+
+## Graviers
+
+```{r, echo = FALSE}
+r <- raster::raster("../outputs/Cartographie_pc_gravel.tif")
+raster::plot(r, main = "Graviers (%)", cex.main = 1.5)
+
+```
+
+---
+
+# Idées d'études complémentaires
+- Utiliser le multifaisceaux pour caractériser aussi la réflectance, un peu comme le sonar ?
+- Réaliser des carottes de 20-30cm pour avoir l'historique et faire des analyses complémentaires isotopiques pour dater
+
+---
+
+# Contacts utiles
+- Enrique Ballesteros  = > beaucoup travaillé en milieu côtier et indicateurs  
+- David Tanblas (?)  = > cartographie avec multifaisceaux
+

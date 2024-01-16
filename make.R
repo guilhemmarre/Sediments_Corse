@@ -19,8 +19,6 @@ devtools::install_deps(upgrade = "never")
 
 devtools::load_all(here::here())
 
-library(XLConnect)
-
 source("R/degmindec2degdec.R")
 
 source("R/function_folk.R")

@@ -425,7 +425,7 @@ positions <- sf::st_as_sf(x = positions,
 ### BIOCENOSES DATA ###
 #######################
 
-biocenoses <- sf::st_read(dsn = "Z:/CartoNAS/ETUDES/MEDTRIX/PLATEFORME MEDTRIX/MEDTRIX_FTP/data/biocenoses/latest/Biocenoses_Mediterranee_DONIA_expert_dec_2023.shp")
+biocenoses <- sf::st_read(dsn = "Z:/CartoNAS/ETUDES/MEDTRIX/PLATEFORME MEDTRIX/MEDTRIX_FTP/data/biocenoses/latest/Biocenoses_Mediterranee_DONIA_expert_fev_2024.shp")
 
 positions_L93 <- sf::st_transform(x = positions, crs = sf::st_crs(biocenoses))
 
@@ -436,6 +436,7 @@ habitat <- data.frame("Sample" = metadata$Sample, "Habitat" = habitat$HABITAT)
 habitat$Habitat[which(habitat$Habitat == "Biocenose du detritique cotier (DC)")] <- "Det. côtier"
 habitat$Habitat[which(habitat$Habitat == "Association a Cymodocea nodosa sur SFBC")] <- "Cymodocea SFBC"
 habitat$Habitat[which(habitat$Habitat == "Biocenose des sables fins bien calibres (SFBC)")] <- "SFBC"
+habitat$Habitat[which(habitat$Habitat == "Biocenose des sables fins de haut niveau (SFHN)")] <- "SFBC" # Parti pris, mais classe pas importante, et seulement 8 points
 habitat$Habitat[which(habitat$Habitat == "Biocenose de l herbier a Posidonia oceanica")] <- "P.oceanica"
 habitat$Habitat[which(habitat$Habitat == "Zone bathyale")] <- "Zone bathyale"
 habitat$Habitat[which(habitat$Habitat == "Biocenose des algues infralittorales")] <- "Algues infra"
@@ -469,6 +470,7 @@ centroids <- sf::st_join(x = bathy, y = biocenoses)
 centroids$HABITAT[which(centroids$HABITAT == "Biocenose du detritique cotier (DC)")] <- "Det. côtier"
 centroids$HABITAT[which(centroids$HABITAT == "Association a Cymodocea nodosa sur SFBC")] <- "Cymodocea SFBC"
 centroids$HABITAT[which(centroids$HABITAT == "Biocenose des sables fins bien calibres (SFBC)")] <- "SFBC"
+centroids$HABITAT[which(centroids$HABITAT == "Biocenose des sables fins de haut niveau (SFHN)")] <- "SFBC" # Parti pris, mais classe pas importante, et seulement 8 points
 centroids$HABITAT[which(centroids$HABITAT == "Biocenose de l herbier a Posidonia oceanica")] <- "P.oceanica"
 centroids$HABITAT[which(centroids$HABITAT == "Zone bathyale")] <- "Zone bathyale"
 centroids$HABITAT[which(centroids$HABITAT == "Biocenose des algues infralittorales")] <- "Algues infra"
@@ -490,6 +492,7 @@ centroids$auteur <- NULL
 centroids$contact <- NULL
 centroids$SURFSTAT_R <- NULL
 centroids$surface <- NULL
+centroids$OBJECTID <- NULL
 colnames(centroids)[1] <- "Profondeur"
 colnames(centroids)[2] <- "Habitat"
 centroids <- centroids[!is.na(centroids$Habitat),]
@@ -520,35 +523,42 @@ positions <- terra::vect(as.matrix(metadata[, c("Longitude", "Latitude")]), crs 
 result <- terra::extract(x = UZ, y = positions)$UZ_fond_2022_summary_3
 outside_mask <- is.na(result)
 outside_pts <- positions[outside_mask,]
-outside_pts <- terra::geom(outside_pts)[, c("x", "y")]
-nearest.cells <- seegSDM::nearestLand(points = outside_pts, raster = raster::raster(UZ), max_distance = 10000)
 
-positions <- terra::geom(positions)[, c("x", "y")]
+# Transformation du raster en points pour utiliser la fonction nearest de terra
+UZ_vect <- terra::as.points(UZ)
+
+nearest.cells <- do.call(rbind.data.frame, lapply(1:nrow(outside_pts), function(x){
+  
+  cat("Recherche du point le plus proche pour le point n°", x, "/", nrow(outside_pts), "\n")
+  # Détermination du centroide le plus proche
+  id <- terra::nearest(x = outside_pts[x], y = UZ_vect, centroids = TRUE)$to_id
+  
+  # Récupération des coordonnées de ce centroide
+  coords <- terra::geom(UZ_vect[id])[, c("x", "y")]
+  
+  return(coords)
+  
+}))
+
+colnames(nearest.cells) <- c("x", "y")
+
+# Ancienne solution avec le package seegSDM (dépéndant de rgeos et rgdal qui sont deprecated...)
+# outside_pts <- terra::geom(outside_pts)[, c("x", "y")]
+# nearest.cells <- seegSDM::nearestLand(points = outside_pts, raster = raster::raster(UZ), max_distance = 10000)
+
+positions <- as.data.frame(terra::geom(positions)[, c("x", "y")])
 positions[outside_mask,] <- nearest.cells
 positions <- terra::vect(as.matrix(positions), crs = "+proj=longlat +datum=WGS84")
 
-# Extraction des valeurs
+# Extraction des valeurs UZ
 UZ_points <- terra::extract(x = UZ, y = positions)$UZ_fond_2022_summary_3
 
-
-# Correction des positions qui tombent à côté pour récupérer le centroide le plus proche
-positions <- terra::vect(as.matrix(metadata[, c("Longitude", "Latitude")]), crs = "+proj=longlat +datum=WGS84")
-result <- terra::extract(x = VZ, y = positions)$VZ_fond_2022_summary_3
-outside_mask <- is.na(result)
-outside_pts <- positions[outside_mask,]
-outside_pts <- terra::geom(outside_pts)[, c("x", "y")]
-nearest.cells <- seegSDM::nearestLand(points = outside_pts, raster = raster::raster(VZ), max_distance = 10000)
-
-positions <- terra::geom(positions)[, c("x", "y")]
-positions[outside_mask,] <- nearest.cells
-positions <- terra::vect(as.matrix(positions), crs = "+proj=longlat +datum=WGS84")
-
-# Extraction des valeurs
+# Extraction des valeurs VZ
 VZ_points <- terra::extract(x = VZ, y = positions)$VZ_fond_2022_summary_3
 
 
 courantologie <- data.frame("Sample" = metadata$Sample, "UZ" = UZ_points, "VZ" = VZ_points)
-courantologie$Courant <- sqrt(courantologie$UZ^2 + courantologie$VZ^2)
+courantologie$Courant <- sqrt(courantologie$UZ ^ 2 + courantologie$VZ ^ 2)
 courantologie$UZ <- NULL
 courantologie$VZ <- NULL
 
@@ -673,10 +683,10 @@ write.table(data, "data/derived-data/01_Donnees_sediments_2022.csv", sep = ";", 
 save(data, file = "outputs/01_data.RData")
 
 # Export shapefile all data
-data_sp <- data
-sp::coordinates(data_sp) <- ~ Longitude + Latitude
-sp::proj4string(data_sp) <- sp::CRS("+init=epsg:4326")
-rgdal::writeOGR(obj = data_sp, dsn = "outputs/01_Donnees_classes_sediments_2022.shp", layer = "01_Donnees_classes_sediments_2022", driver = "ESRI Shapefile", overwrite_layer = TRUE)
+data_sf <- data
+colnames(data_sf) <- gsub("classe_", "", colnames(data_sf))
+data_sf <- sf::st_as_sf(data_sf, coords = c("Longitude", "Latitude"), crs = 4326)
+sf::st_write(obj = data_sf, dsn = "outputs/01_Donnees_classes_sediments_2022.shp", append = FALSE)
 
 
 ####################
@@ -693,52 +703,51 @@ data <- data[complete.cases(data[, c(grain_size, "CaCO3", "LOI_550")]), ]
 data <- data[data$Habitat %in% names(which(table(data$Habitat) > 5)), ]
 
 # Lecture de la couche bathy + habitat
-bathy <- rgdal::readOGR("outputs/01_Bathy_habitats.shp")
-bathy@data$Profondeur <- - bathy@data$Profondeur
+bathy <- sf::st_read("outputs/01_Bathy_habitats.shp")
+bathy$Profondeur <- - bathy$Profondeur
 
-# Transformation des données en sp
-data_sp <- data
-sp::coordinates(data_sp) <- ~ Longitude + Latitude
-sp::proj4string(data_sp) <- sp::CRS("+init=epsg:4326")
-data_sp <- sp::spTransform(x = data_sp, bathy@proj4string)
+# Reprojection des données
+data_sf <- data
+data_sf <- sf::st_as_sf(data_sf, coords = c("Longitude", "Latitude"), crs = 4326)
+data_sf <- sf::st_transform(x = data_sf, crs = terra::crs(bathy))
 
 # Liste de variables à interpoler
 variables <- c("CaCO3", "LOI_550", "Median", "pc_clay", "pc_silt", "pc_sand", "pc_gravel")
-habitats <- unique(data_sp@data$Habitat)
+
+# Liste des habitats sur lesquels interpoler
+habitats <- c("Cymodocea SFBC",
+              "Det. côtier",
+              "Det. Envasé",
+              "P.oceanica",
+              "SFBC",
+              "SGCF - circa",
+              "SGCF - infra")
 
 for (variable in variables){
   
   cat("Variable : ", variable, "\n")
-  # Premier habitat pour pouvoir ensuite faire le rbind
-  grid <- bathy[bathy@data$Habitat == habitats[1],]
-  results <- eval(parse(text = paste0("automap::autoKrige(formula = ", variable, " ~ Profondeur, input_data = data_sp[data_sp$Habitat == habitats[1],], new_data = grid)")))
-  results <- results$krige_output
-  results$var1.pred[results$var1.pred < 0 ] <- 0
-  
-  for (habitat in habitats[2:length(habitats)]){
+
+  results <- do.call(rbind, lapply(habitats, function(habitat){
     
-    grid <- bathy[bathy@data$Habitat == habitat,]
-    krigeHab <- eval(parse(text = paste0("automap::autoKrige(formula = ", variable, " ~ Profondeur, input_data = data_sp[data_sp$Habitat == habitat,], new_data = grid)")))
+    cat("Habitat : ", habitat, "\n")
+    grid <- bathy[bathy$Habitat == habitat,]
+    krigeHab <- eval(parse(text = paste0("automap::autoKrige(formula = ", variable, " ~ Profondeur, input_data = data_sf[data_sf$Habitat == habitat,], new_data = grid)")))
     krigeHab <- krigeHab$krige_output
     krigeHab$var1.pred[krigeHab$var1.pred < 0 ] <- 0
     
-    # On aggrège les résultats pour les différents habitats
-    results <- rbind(results,
-                     krigeHab)
-  }#eo for habitat
+    return(krigeHab)
+    
+  }))
   
   # Transformation des résultats en raster
-  results <- sp::spTransform(results, bathy@proj4string)
-  results <- data.frame("x" = sp::coordinates(results)[,"coords.x1"], 
-                        "y" = sp::coordinates(results)[,"coords.x2"], 
-                        "prediction" = results@data[,"var1.pred"])
-  
-  sp::coordinates(results) <- ~ x + y
-  sp::gridded(results) <- TRUE
-  results <- raster::raster(results)
-  sp::proj4string(results) <- bathy@proj4string
+  results <- sf::st_transform(x = results, crs = terra::crs(bathy))
+  results <- terra::vect(results)[, "var1.pred"]
+  names(results) <- "prediction"
+  r <- terra::rast(x = results, resolution = 50)
+  results <- terra::rasterize(results, r, "prediction")
   
   # Export des résultats
-  raster::writeRaster(x = results, paste0("outputs/01_Cartographie_", variable, ".tif"), overwrite = TRUE)
-  
+  terra::writeRaster(x = results, filename = paste0("outputs/01_Cartographie_", variable, ".tif"))
+
 }#eo for variable
+

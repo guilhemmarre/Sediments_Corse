@@ -1352,6 +1352,60 @@ Cartographie des observations de rhodolithes plus haut dans les "Cartes Descript
 
 ```{r, echo = FALSE}
 
+# Median
+ggplot(data = data %>% filter(!is.na(RHO_presence)) , aes(x = RHO_presence, y = Median)) +
+  geom_boxplot(fill = "purple") +
+  theme(strip.background = element_rect(colour = "black", fill = "white", size = 1.5, linetype = "solid")) + 
+  theme_set(theme_grey()) +
+  theme(
+    legend.position = "none",
+    axis.text.y = element_text(size = 10, color = "black"),
+    axis.title.y = element_text(face = "bold", size = 11, color = "black"),
+    axis.text.x = element_text(size = 10, color = "black", angle = 90, hjust = 1, vjust = 1, col = "darkGrey"),
+    axis.ticks.x = element_blank()) +
+  guides(fill = guide_legend(title = "")) + 
+  xlab("") + 
+  ylab("Median (um)")
+
+summary(lm(Median ~ RHO_presence, data %>% filter(!is.na(RHO_presence))))
+
+
+# LOI_550
+ggplot(data = data %>% filter(!is.na(RHO_presence)) , aes(x = RHO_presence, y = LOI_550)) +
+  geom_boxplot(fill = "purple") +
+  theme(strip.background = element_rect(colour = "black", fill = "white", size = 1.5, linetype = "solid")) + 
+  theme_set(theme_grey()) +
+  theme(
+    legend.position = "none",
+    axis.text.y = element_text(size = 10, color = "black"),
+    axis.title.y = element_text(face = "bold", size = 11, color = "black"),
+    axis.text.x = element_text(size = 10, color = "black", angle = 90, hjust = 1, vjust = 1, col = "darkGrey"),
+    axis.ticks.x = element_blank()) +
+  guides(fill = guide_legend(title = "")) + 
+  xlab("") + 
+  ylab("LOI_550")
+
+summary(lm(LOI_550 ~ RHO_presence, data %>% filter(!is.na(RHO_presence))))
+
+
+# CaCO3
+ggplot(data = data %>% filter(!is.na(RHO_presence)) , aes(x = RHO_presence, y = CaCO3)) +
+  geom_boxplot(fill = "purple") +
+  theme(strip.background = element_rect(colour = "black", fill = "white", size = 1.5, linetype = "solid")) + 
+  theme_set(theme_grey()) +
+  theme(
+    legend.position = "none",
+    axis.text.y = element_text(size = 10, color = "black"),
+    axis.title.y = element_text(face = "bold", size = 11, color = "black"),
+    axis.text.x = element_text(size = 10, color = "black", angle = 90, hjust = 1, vjust = 1, col = "darkGrey"),
+    axis.ticks.x = element_blank()) +
+  guides(fill = guide_legend(title = "")) + 
+  xlab("") + 
+  ylab("CaCO3 (%)")
+
+summary(lm(CaCO3 ~ RHO_presence, data %>% filter(!is.na(RHO_presence))))
+
+
 # Distance à la côte
 ggplot(data = data %>% filter(!is.na(RHO_presence)) , aes(x = RHO_presence, y = dist_land)) +
   geom_boxplot(fill = "purple") +
@@ -1470,8 +1524,8 @@ A partir d'une bathymétrie de résolution 50m transformée en fichier de points
 ## CaCO3
 
 ```{r, echo = FALSE}
-r <- raster::raster("../outputs/Cartographie_CaCO3.tif")
-raster::plot(r, main = "CaCO3 (%)", cex.main = 1.5)
+r <- terra::rast("../outputs/01_Cartographie_CaCO3.tif")
+terra::plot(r, main = "CaCO3 (%)", cex.main = 1.5)
 
 ```
 
@@ -1480,8 +1534,8 @@ raster::plot(r, main = "CaCO3 (%)", cex.main = 1.5)
 ## LOI 550
 
 ```{r, echo = FALSE}
-r <- raster::raster("../outputs/Cartographie_LOI_550.tif")
-raster::plot(r, main = "LOI 550", cex.main = 1.5)
+r <- terra::rast("../outputs/01_Cartographie_LOI_550.tif")
+terra::plot(r, main = "LOI 550", cex.main = 1.5)
 
 ```
 
@@ -1490,8 +1544,8 @@ raster::plot(r, main = "LOI 550", cex.main = 1.5)
 ## Argiles
 
 ```{r, echo = FALSE}
-r <- raster::raster("../outputs/Cartographie_pc_clay.tif")
-raster::plot(r, main = "Argiles (%)", cex.main = 1.5)
+r <- terra::rast("../outputs/01_Cartographie_pc_clay.tif")
+terra::plot(r, main = "Argiles (%)", cex.main = 1.5)
 
 ```
 
@@ -1500,8 +1554,8 @@ raster::plot(r, main = "Argiles (%)", cex.main = 1.5)
 ## Limons
 
 ```{r, echo = FALSE}
-r <- raster::raster("../outputs/Cartographie_pc_silt.tif")
-raster::plot(r, main = "Limons (%)", cex.main = 1.5)
+r <- terra::rast("../outputs/01_Cartographie_pc_silt.tif")
+terra::plot(r, main = "Limons (%)", cex.main = 1.5)
 
 ```
 
@@ -1510,8 +1564,8 @@ raster::plot(r, main = "Limons (%)", cex.main = 1.5)
 ## Sables
 
 ```{r, echo = FALSE}
-r <- raster::raster("../outputs/Cartographie_pc_sand.tif")
-raster::plot(r, main = "Sables (%)", cex.main = 1.5)
+r <- terra::rast("../outputs/01_Cartographie_pc_sand.tif")
+terra::plot(r, main = "Sables (%)", cex.main = 1.5)
 
 ```
 
@@ -1520,8 +1574,206 @@ raster::plot(r, main = "Sables (%)", cex.main = 1.5)
 ## Graviers
 
 ```{r, echo = FALSE}
-r <- raster::raster("../outputs/Cartographie_pc_gravel.tif")
-raster::plot(r, main = "Graviers (%)", cex.main = 1.5)
+r <- terra::rast("../outputs/01_Cartographie_pc_gravel.tif")
+terra::plot(r, main = "Graviers (%)", cex.main = 1.5)
+
+```
+
+---
+
+# Prédiction habitat
+
+On teste un random forest pour prédire le type d'habitat en fonction des paramètres mesurés
+```{r, echo = FALSE}
+
+# On ne garde que les 3 principaux habitats meubles assez représentés
+data_rf <- data %>%
+  filter(Habitat %in% c("Det. côtier",
+                        "Det. Envasé",
+                        "SFBC"))
+
+table(data_rf$Habitat)
+
+# Transforme l'habitat en facteurs
+data_rf$Habitat <- as.factor(data_rf$Habitat)
+
+# Liste des variables explicatives
+variables <- c("Profondeur",
+               "Median","LOI_550","CaCO3",
+               "Mean", "Mode", "Skewness", "Kurtosis", "d10", "d50", "d90",
+               "pc_2", "pc_4", "pc_63", "pc_125", "pc_250", "pc_500", "pc_1000", "pc_2500", "pc_4000",
+               "Habitat")
+
+df1 <- data_rf[,variables[-which(variables == "Habitat")]]
+df2 = cor(df1)
+hc = caret::findCorrelation(df2, cutoff=0.7) # putt any value as a "cutoff" 
+hc = sort(hc)
+reduced_Data = df1[,-c(hc)]
+
+```
+
+
+## Avec toutes les variables
+
+- La **profondeur** est de loin la variable la plus importante   
+
+- La classe **détritique envasé** est très mal prédite (~75 % d'erreur !)
+
+```{r, echo = FALSE}
+
+# Entraînement du modèle
+rf <- randomForest::randomForest(Habitat ~ ., data_rf[, variables])
+
+# Résultats bruts
+rf
+
+# Graphique d'importance des variables
+randomForest::varImpPlot(x = rf, main = "Importance relative des variables")
+
+```
+
+
+## En supprimant les variables trop corrélées (> 0.7)
+
+Même constat :   
+
+- La **profondeur** est de loin la variable la plus importante   
+
+- La classe **détritique envasé** est très mal prédite (~75 % d'erreur !)
+
+```{r, echo = FALSE}
+vars <- c(colnames(reduced_Data), "Habitat")
+
+# Entraînement du modèle
+rf <- randomForest::randomForest(Habitat ~ ., data_rf[, vars])
+
+# Résultats bruts
+rf
+
+# Graphique d'importance des variables
+randomForest::varImpPlot(x = rf, main = "Importance relative des variables")
+
+```
+
+## En supprimant en plus la profondeur
+
+- La **LOI_550** et **CaC03** deviennent les variables les plus importantes (mais pas aussi flagrant que la profondeur)      
+
+- La classe **détritique envasé** est très mal prédite (83 % d'erreur !)
+
+- La classe **SFBC** moins bien prédite qu'avec la profondeur (20 % d'erreur au lieu de ~8 % d'erreur)
+
+```{r, echo = FALSE}
+
+vars <- c(colnames(reduced_Data), "Habitat")
+vars <- vars[-which(vars == "Profondeur")]
+
+# Entraînement du modèle
+rf <- randomForest::randomForest(Habitat ~ ., data_rf[, vars])
+
+# Résultats bruts
+rf
+
+# Graphique d'importance des variables
+randomForest::varImpPlot(x = rf, main = "Importance relative des variables")
+
+```
+
+
+
+# Histogrammes détritique côtier vs détrique envasé
+
+```{r, echo = FALSE}
+data_histo <- data[data$Habitat %in% c("Det. côtier", "Det. Envasé"),]
+
+# Median
+ggplot(data_histo, aes(x = Median, fill = Habitat)) +
+  geom_histogram(position = "dodge", bins = 30, color = "black", alpha = 0.7) +
+  labs(title = "Det. côtier vs Det. envasé",
+       x = "Median",
+       y = "Fréquence") +
+  scale_fill_manual(values = c("Det. côtier" = "blue", "Det. Envasé" = "red"))
+
+# pc_2
+ggplot(data_histo, aes(x = pc_2, fill = Habitat)) +
+  geom_histogram(position = "dodge", bins = 30, color = "black", alpha = 0.7) +
+  labs(title = "Det. côtier vs Det. envasé",
+       x = "pc_2",
+       y = "Fréquence") +
+  scale_fill_manual(values = c("Det. côtier" = "blue", "Det. Envasé" = "red"))
+
+# pc_4
+ggplot(data_histo, aes(x = pc_4, fill = Habitat)) +
+  geom_histogram(position = "dodge", bins = 30, color = "black", alpha = 0.7) +
+  labs(title = "Det. côtier vs Det. envasé",
+       x = "pc_4",
+       y = "Fréquence") +
+  scale_fill_manual(values = c("Det. côtier" = "blue", "Det. Envasé" = "red"))
+
+# pc_63
+ggplot(data_histo, aes(x = pc_63, fill = Habitat)) +
+  geom_histogram(position = "dodge", bins = 30, color = "black", alpha = 0.7) +
+  labs(title = "Det. côtier vs Det. envasé",
+       x = "pc_63",
+       y = "Fréquence") +
+  scale_fill_manual(values = c("Det. côtier" = "blue", "Det. Envasé" = "red"))
+
+# pc_125
+ggplot(data_histo, aes(x = pc_125, fill = Habitat)) +
+  geom_histogram(position = "dodge", bins = 30, color = "black", alpha = 0.7) +
+  labs(title = "Det. côtier vs Det. envasé",
+       x = "pc_125",
+       y = "Fréquence") +
+  scale_fill_manual(values = c("Det. côtier" = "blue", "Det. Envasé" = "red"))
+
+# pc_250
+ggplot(data_histo, aes(x = pc_250, fill = Habitat)) +
+  geom_histogram(position = "dodge", bins = 30, color = "black", alpha = 0.7) +
+  labs(title = "Det. côtier vs Det. envasé",
+       x = "pc_250",
+       y = "Fréquence") +
+  scale_fill_manual(values = c("Det. côtier" = "blue", "Det. Envasé" = "red"))
+
+
+# pc_500
+ggplot(data_histo, aes(x = pc_500, fill = Habitat)) +
+  geom_histogram(position = "dodge", bins = 30, color = "black", alpha = 0.7) +
+  labs(title = "Det. côtier vs Det. envasé",
+       x = "pc_500",
+       y = "Fréquence") +
+  scale_fill_manual(values = c("Det. côtier" = "blue", "Det. Envasé" = "red"))
+
+# pc_1000
+ggplot(data_histo, aes(x = pc_1000, fill = Habitat)) +
+  geom_histogram(position = "dodge", bins = 30, color = "black", alpha = 0.7) +
+  labs(title = "Det. côtier vs Det. envasé",
+       x = "pc_1000",
+       y = "Fréquence") +
+  scale_fill_manual(values = c("Det. côtier" = "blue", "Det. Envasé" = "red"))
+
+# pc_2000
+ggplot(data_histo, aes(x = pc_2000, fill = Habitat)) +
+  geom_histogram(position = "dodge", bins = 30, color = "black", alpha = 0.7) +
+  labs(title = "Det. côtier vs Det. envasé",
+       x = "pc_2000",
+       y = "Fréquence") +
+  scale_fill_manual(values = c("Det. côtier" = "blue", "Det. Envasé" = "red"))
+
+# LOI_550
+ggplot(data_histo, aes(x = LOI_550, fill = Habitat)) +
+  geom_histogram(position = "dodge", bins = 30, color = "black", alpha = 0.7) +
+  labs(title = "Det. côtier vs Det. envasé",
+       x = "LOI_550",
+       y = "Fréquence") +
+  scale_fill_manual(values = c("Det. côtier" = "blue", "Det. Envasé" = "red"))
+
+# CaCo3
+ggplot(data_histo, aes(x = CaCO3, fill = Habitat)) +
+  geom_histogram(position = "dodge", bins = 30, color = "black", alpha = 0.7, aes(y = after_stat(count / sum(count)))) +
+  labs(title = "Det. côtier vs Det. envasé",
+       x = "CaCO3",
+       y = "Fréquence") +
+  scale_fill_manual(values = c("Det. côtier" = "blue", "Det. Envasé" = "red"))
 
 ```
 

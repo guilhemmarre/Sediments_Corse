@@ -747,7 +747,7 @@ for (variable in variables){
   results <- terra::rasterize(results, r, "prediction")
   
   # Export des résultats
-  terra::writeRaster(x = results, filename = paste0("outputs/01_Cartographie_", variable, ".tif"))
+  terra::writeRaster(x = results, filename = paste0("outputs/01_Cartographie_", variable, ".tif"), overwrite = TRUE)
 
 }#eo for variable
 

@@ -1684,7 +1684,9 @@ randomForest::varImpPlot(x = rf, main = "Importance relative des variables")
 # Histogrammes détritique côtier vs détrique envasé
 
 ```{r, echo = FALSE}
-data_histo <- data[data$Habitat %in% c("Det. côtier", "Det. Envasé"),]
+data_histo <- data[data$Habitat %in% c("Det. côtier", "Det. Envasé", "SFBC"),]
+
+colors <- c("Det. côtier" = "#006600", "Det. Envasé" = "#993300", "SFBC" = "#FFFF00")
 
 # Median
 ggplot(data_histo, aes(x = Median, fill = Habitat)) +
@@ -1692,7 +1694,7 @@ ggplot(data_histo, aes(x = Median, fill = Habitat)) +
   labs(title = "Det. côtier vs Det. envasé",
        x = "Median",
        y = "Fréquence") +
-  scale_fill_manual(values = c("Det. côtier" = "blue", "Det. Envasé" = "red"))
+  scale_fill_manual(values = colors)
 
 # pc_2
 ggplot(data_histo, aes(x = pc_2, fill = Habitat)) +
@@ -1700,7 +1702,7 @@ ggplot(data_histo, aes(x = pc_2, fill = Habitat)) +
   labs(title = "Det. côtier vs Det. envasé",
        x = "pc_2",
        y = "Fréquence") +
-  scale_fill_manual(values = c("Det. côtier" = "blue", "Det. Envasé" = "red"))
+  scale_fill_manual(values = colors)
 
 # pc_4
 ggplot(data_histo, aes(x = pc_4, fill = Habitat)) +
@@ -1708,7 +1710,7 @@ ggplot(data_histo, aes(x = pc_4, fill = Habitat)) +
   labs(title = "Det. côtier vs Det. envasé",
        x = "pc_4",
        y = "Fréquence") +
-  scale_fill_manual(values = c("Det. côtier" = "blue", "Det. Envasé" = "red"))
+  scale_fill_manual(values = colors)
 
 # pc_63
 ggplot(data_histo, aes(x = pc_63, fill = Habitat)) +
@@ -1716,7 +1718,7 @@ ggplot(data_histo, aes(x = pc_63, fill = Habitat)) +
   labs(title = "Det. côtier vs Det. envasé",
        x = "pc_63",
        y = "Fréquence") +
-  scale_fill_manual(values = c("Det. côtier" = "blue", "Det. Envasé" = "red"))
+  scale_fill_manual(values = colors)
 
 # pc_125
 ggplot(data_histo, aes(x = pc_125, fill = Habitat)) +
@@ -1724,7 +1726,7 @@ ggplot(data_histo, aes(x = pc_125, fill = Habitat)) +
   labs(title = "Det. côtier vs Det. envasé",
        x = "pc_125",
        y = "Fréquence") +
-  scale_fill_manual(values = c("Det. côtier" = "blue", "Det. Envasé" = "red"))
+  scale_fill_manual(values = colors)
 
 # pc_250
 ggplot(data_histo, aes(x = pc_250, fill = Habitat)) +
@@ -1732,7 +1734,7 @@ ggplot(data_histo, aes(x = pc_250, fill = Habitat)) +
   labs(title = "Det. côtier vs Det. envasé",
        x = "pc_250",
        y = "Fréquence") +
-  scale_fill_manual(values = c("Det. côtier" = "blue", "Det. Envasé" = "red"))
+  scale_fill_manual(values = colors)
 
 
 # pc_500
@@ -1741,7 +1743,7 @@ ggplot(data_histo, aes(x = pc_500, fill = Habitat)) +
   labs(title = "Det. côtier vs Det. envasé",
        x = "pc_500",
        y = "Fréquence") +
-  scale_fill_manual(values = c("Det. côtier" = "blue", "Det. Envasé" = "red"))
+  scale_fill_manual(values = colors)
 
 # pc_1000
 ggplot(data_histo, aes(x = pc_1000, fill = Habitat)) +
@@ -1749,7 +1751,7 @@ ggplot(data_histo, aes(x = pc_1000, fill = Habitat)) +
   labs(title = "Det. côtier vs Det. envasé",
        x = "pc_1000",
        y = "Fréquence") +
-  scale_fill_manual(values = c("Det. côtier" = "blue", "Det. Envasé" = "red"))
+  scale_fill_manual(values = colors)
 
 # pc_2000
 ggplot(data_histo, aes(x = pc_2000, fill = Habitat)) +
@@ -1757,7 +1759,7 @@ ggplot(data_histo, aes(x = pc_2000, fill = Habitat)) +
   labs(title = "Det. côtier vs Det. envasé",
        x = "pc_2000",
        y = "Fréquence") +
-  scale_fill_manual(values = c("Det. côtier" = "blue", "Det. Envasé" = "red"))
+  scale_fill_manual(values = colors)
 
 # LOI_550
 ggplot(data_histo, aes(x = LOI_550, fill = Habitat)) +
@@ -1765,7 +1767,7 @@ ggplot(data_histo, aes(x = LOI_550, fill = Habitat)) +
   labs(title = "Det. côtier vs Det. envasé",
        x = "LOI_550",
        y = "Fréquence") +
-  scale_fill_manual(values = c("Det. côtier" = "blue", "Det. Envasé" = "red"))
+  scale_fill_manual(values = colors)
 
 # CaCo3
 ggplot(data_histo, aes(x = CaCO3, fill = Habitat)) +
@@ -1773,7 +1775,7 @@ ggplot(data_histo, aes(x = CaCO3, fill = Habitat)) +
   labs(title = "Det. côtier vs Det. envasé",
        x = "CaCO3",
        y = "Fréquence") +
-  scale_fill_manual(values = c("Det. côtier" = "blue", "Det. Envasé" = "red"))
+  scale_fill_manual(values = colors)
 
 ```
 
